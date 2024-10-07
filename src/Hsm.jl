@@ -3,63 +3,65 @@ module Hsm
 using ValSplit
 
 abstract type AbstractHsmStateMachine end
+const StateType = Symbol
+
 @enum EventReturn EventNotHandled EventHandled
 
-@valsplit on_initial!(sm::AbstractHsmStateMachine, Val(state::Symbol)) = EventHandled
-@valsplit on_entry!(sm::AbstractHsmStateMachine, Val(state::Symbol)) = nothing
-@valsplit on_exit!(sm::AbstractHsmStateMachine, Val(state::Symbol)) = nothing
-# @valsplit on_entry!(sm::AbstractHsmStateMachine, Val(state::Symbol)) = print("$(state)-ENTRY;")
-# @valsplit on_exit!(sm::AbstractHsmStateMachine, Val(state::Symbol)) = print("$(state)-EXIT;")
+function current(::AbstractHsmStateMachine) end
+function current!(::AbstractHsmStateMachine, state::StateType) end
+function source(::AbstractHsmStateMachine) end
+function source!(::AbstractHsmStateMachine, state::StateType) end
+function event(::AbstractHsmStateMachine) end
+
+root(sm::AbstractHsmStateMachine) = :Root
+initialize(sm::AbstractHsmStateMachine) = (current!(sm, root(sm)); source!(sm, root(sm)))
+
+@valsplit function ancestor(sm::AbstractHsmStateMachine, Val(state::StateType))
+    @error("No ancestor for state $state")
+    return root(sm)
+end
+
+@valsplit on_initial!(sm::AbstractHsmStateMachine, Val(state::StateType)) = EventHandled
+@valsplit on_entry!(sm::AbstractHsmStateMachine, Val(state::StateType)) = nothing
+@valsplit on_exit!(sm::AbstractHsmStateMachine, Val(state::StateType)) = nothing
 
 # Generic on_event! handler for unhandled events
-# @valsplit on_event!(sm::AbstractHsmStateMachine, Val(state::Symbol), Val(event::Symbol)) = EventNotHandled
-@valsplit function on_event!(sm::AbstractHsmStateMachine, Val(state::Symbol), Val(event::Symbol))
-    if state === :Root
+@valsplit function on_event!(
+    sm::AbstractHsmStateMachine,
+    Val(state::StateType),
+    Val(event::StateType),
+)
+    if state == root(sm)
         return EventHandled
     end
     return EventNotHandled
 end
 
-# Event handler for Root state. Events are considered handled if they reach the Root state - Don't know if this works
-# with valsplit
-function on_event!(::AbstractHsmStateMachine, ::Val{:Root}, event::Symbol)
-    @warn "Unhandled event $(event)"
-    return EventHandled
-end
-
-@valsplit function ancestor(Val(state::Symbol))
-    # @error("No ancestor for state $state")
-    # while true
-    #     sleep(1)
-    # end
-    return :NoAncestor
-end
-
-function do_entry!(sm::AbstractHsmStateMachine, s, t)
+function do_entry!(sm, s, t)
     if s == t
         return
     end
-    do_entry!(sm, s, ancestor(t))
+    do_entry!(sm, s, ancestor(sm, t))
     on_entry!(sm, t)
     return
 end
 
-function do_exit!(sm::AbstractHsmStateMachine, s, t)
-    while s !== t
+function do_exit!(sm, s, t)
+    while s != t
         on_exit!(sm, s)
-        s = ancestor(s)
+        s = ancestor(sm, s)
     end
     return
 end
 
-function transition!(sm::AbstractHsmStateMachine, t)
+function transition!(sm::AbstractHsmStateMachine, t::StateType)
     return transition!(Returns(nothing), sm, t)
 end
 
-function transition!(action::Function, sm::AbstractHsmStateMachine, t)
+function transition!(action::Function, sm::AbstractHsmStateMachine, t::StateType)
     c = current(sm)
     s = source(sm)
-    lca = find_lca(s, t)
+    lca = find_lca(sm, s, t)
 
     # Perform exit transitions from the current state
     do_exit!(sm, c, lca)
@@ -77,64 +79,37 @@ function transition!(action::Function, sm::AbstractHsmStateMachine, t)
     return on_initial!(sm, t)
 end
 
-
-# Is 's' a child of 't', I think I need to flip this around
-function isancestorof_recursive(s, t)
-    if s == :Root || t == :Root
+# Is 'a' an ancestor of 'b'
+function isancestorof(sm, a, b)
+    if a == root(sm)
         return false
-    elseif s == t
-        return true
     end
-    isancestorof_recursive(ancestor(s), t)
-end
-
-function find_lca_recursive(s, t)
-    if s == :Root || t == :Root
-        return s
-    end
-
-    if s == t
-        return ancestor(s)
-    end
-
-    if isancestorof(s, t)
-        return find_lca_recursive(ancestor(s), t)
-    else
-        return find_lca_recursive(s, ancestor(t))
-    end
-end
-
-@inline function isancestorof(s, t)
-    while s !== :Root
-        if s == t
+    while b != root(sm)
+        if a == b
             return true
         end
-        s = ancestor(s)
+        b = ancestor(sm, b)
     end
     return false
 end
 
-# I think I need to flip this around
-function find_lca_iterative(s, t)
-    while s !== :Root && t !== :Root
+function find_lca(sm, s, t)
+    # Handle case where main source is equal to target
+    if s == t
+        return ancestor(sm, s)
+    end
+
+    while s != root(sm) && t != root(sm)
         if s == t
-            return ancestor(s)
-        elseif isancestorof(s, t)
-            s = ancestor(s)
+            return s
+        elseif isancestorof(sm, s, t)
+            t = ancestor(sm, t)
         else
-            t = ancestor(t)
+            s = ancestor(sm, s)
         end
     end
-    return :Root
+    return root(sm)
 end
-
-const find_lca = find_lca_iterative
-
-function current(::AbstractHsmStateMachine) end
-function current!(::AbstractHsmStateMachine, state) end
-function source(::AbstractHsmStateMachine) end
-function source!(::AbstractHsmStateMachine, state) end
-function event(::AbstractHsmStateMachine) end
 
 function dispatch!(sm::AbstractHsmStateMachine)
     s = current(sm)
@@ -145,7 +120,7 @@ function dispatch!(sm::AbstractHsmStateMachine)
         if on_event!(sm, s, e) == EventHandled
             return
         end
-        s = ancestor(s)
+        s = ancestor(sm, s)
     end
 end
 
