@@ -13,12 +13,12 @@ function source(::AbstractHsmStateMachine) end
 function source!(::AbstractHsmStateMachine, state::StateType) end
 function event(::AbstractHsmStateMachine) end
 
-root(sm::AbstractHsmStateMachine) = :Root
-initialize(sm::AbstractHsmStateMachine) = (current!(sm, root(sm)); source!(sm, root(sm)))
+const root() = :Root
+initialize(sm::AbstractHsmStateMachine) = (current!(sm, root()); source!(sm, root()))
 
 @valsplit function ancestor(sm::AbstractHsmStateMachine, Val(state::StateType))
     @error("No ancestor for state $state")
-    return root(sm)
+    return root()
 end
 
 @valsplit on_initial!(sm::AbstractHsmStateMachine, Val(state::StateType)) = EventHandled
@@ -29,9 +29,9 @@ end
 @valsplit function on_event!(
     sm::AbstractHsmStateMachine,
     Val(state::StateType),
-    Val(event::StateType),
+    Val(event::Symbol),
 )
-    if state == root(sm)
+    if state == root()
         return EventHandled
     end
     return EventNotHandled
@@ -54,11 +54,11 @@ function do_exit!(sm, s, t)
     return
 end
 
-function transition!(sm::AbstractHsmStateMachine, t::StateType)
+function transition!(sm::AbstractHsmStateMachine, t)
     return transition!(Returns(nothing), sm, t)
 end
 
-function transition!(action::Function, sm::AbstractHsmStateMachine, t::StateType)
+function transition!(action::Function, sm::AbstractHsmStateMachine, t)
     c = current(sm)
     s = source(sm)
     lca = find_lca(sm, s, t)
@@ -81,10 +81,10 @@ end
 
 # Is 'a' an ancestor of 'b'
 function isancestorof(sm, a, b)
-    if a == root(sm)
+    if a == root()
         return false
     end
-    while b != root(sm)
+    while b != root()
         if a == b
             return true
         end
@@ -99,7 +99,7 @@ function find_lca(sm, s, t)
         return ancestor(sm, s)
     end
 
-    while s != root(sm) && t != root(sm)
+    while s != root() && t != root()
         if s == t
             return s
         elseif isancestorof(sm, s, t)
@@ -108,7 +108,7 @@ function find_lca(sm, s, t)
             s = ancestor(sm, s)
         end
     end
-    return root(sm)
+    return root()
 end
 
 function dispatch!(sm::AbstractHsmStateMachine)
@@ -127,6 +127,6 @@ end
 export AbstractHsmState, AbstractHsmMachine
 export on_initial!, on_entry!, on_exit!, on_event!
 export transition!, dispatch!
-export EventHandled, EventNotHandled
+export EventHandled, EventNotHandled, root
 
 end # module Hsm
