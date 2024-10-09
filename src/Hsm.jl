@@ -94,10 +94,10 @@ Get current state of state machine `sm`.
 
 # Implementation Example
 ```julia
-Hsm.current(sm::HsmTest) == sm.current
+Hsm.current(sm::HsmTest) = sm.current
 ```
 """
-function current(::AbstractHsmStateMachine) end
+function current end
 
 """
     current!(sm::AbstractHsmStateMachine, state::StateType)
@@ -109,7 +109,7 @@ Set current state of state machine `sm` to `state`.
 Hsm.current!(sm::HsmTest, state) = sm.current = state
 ```
 """
-function current!(::AbstractHsmStateMachine, ::StateType) end
+function current! end
 
 """
     source(sm::AbstractHsmStateMachine)
@@ -118,10 +118,10 @@ Get source state of state machine `sm`.
 
 # Implementation Example
 ```julia
-Hsm.source(sm::HsmTest) == sm.source
+Hsm.source(sm::HsmTest) = sm.source
 ```
 """
-function source(::AbstractHsmStateMachine) end
+function source end
 
 """
     source!(sm::AbstractHsmStateMachine, state::StateType)
@@ -133,7 +133,7 @@ Set source state of state machine `sm` to `state`.
 Hsm.source!(sm::HsmTest, state) = sm.source = state
 ```
 """
-function source!(::AbstractHsmStateMachine, ::StateType) end
+function source! end
 
 """
     event(sm::AbstractHsmStateMachine)
@@ -145,7 +145,7 @@ Get event of state machine `sm`.
 Hsm.event(sm::HsmTest) == sm.event
 ```
 """
-function event(::AbstractHsmStateMachine) end
+function event end
 
 """
     initialize!(sm::AbstractHsmStateMachine)
