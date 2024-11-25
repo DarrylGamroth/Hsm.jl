@@ -4,7 +4,6 @@ See example.png for a graphical representation of the state machine.
 """
 
 using Revise
-using JET
 using BenchmarkTools
 
 module Testing

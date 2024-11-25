@@ -9,13 +9,13 @@ Interface type for a hierarchical state machine.
 
 Interface definition:
 
-| Required Methods         | Description                                        |
-|--------------------------|----------------------------------------------------|
-| `current(sm)`            | Get current state of state machine `sm`            |
-| `current!(sm, state)`    | Set current state of state machine `sm` to `state` |
-| `source(sm)`             | Get source state of state machine `sm`             |
-| `source!(sm, state)`     | Set source state of state machine `sm` to `state`  |
-| `event(sm)`              | Get event of state machine `sm`                    |
+| Required Methods         | Description                                         |
+|--------------------------|-----------------------------------------------------|
+| `current(sm)`            | Get current state of state machine `sm`             |
+| `current!(sm, state)`    | Set current state of state machine `sm` to `state`  |
+| `source(sm)`             | Get source state of state machine `sm`              |
+| `source!(sm, state)`     | Set source state of state machine `sm` to `state`   |
+| `event(sm)`              | Get event of state machine `sm`                     |
 
 # Example
 ```julia
@@ -146,6 +146,34 @@ Hsm.event(sm::HsmTest) == sm.event
 ```
 """
 function event end
+
+"""
+    on_event_handled(sm::AbstractHsmStateMachine)
+
+Called when an event is handled by the state machine.
+
+# Implementation Example
+```julia
+function Hsm.event_handled(sm::HsmTest)
+    # Do something when the event is handled
+end
+```
+"""
+on_event_handled(::AbstractHsmStateMachine) = nothing
+
+"""
+    on_state_changed(sm::AbstractHsmStateMachine)
+
+Called when the state of the state machine changes.
+
+# Implementation Example
+```julia
+function Hsm.on_state_changed(sm::HsmTest)
+    # Do something when the state changes
+end
+```
+"""
+on_state_changed(::AbstractHsmStateMachine) = nothing
 
 """
     initialize!(sm::AbstractHsmStateMachine)
@@ -387,15 +415,21 @@ end
 Dispatch the event in state machine `sm`.
 """
 function dispatch!(sm::AbstractHsmStateMachine)
-    s = current(sm)
+    prev = s = current(sm)
     e = event(sm)
+
     # Find the main source state by calling on_event! until the event is handled
     while true
         source!(sm, s)
         if on_event!(sm, s, e) == EventHandled
+            on_event_handled(sm)
             return
         end
         s = ancestor(sm, s)
+    end
+
+    if prev != current(sm)
+        on_state_changed(sm)
     end
 end
 
