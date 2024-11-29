@@ -18,7 +18,6 @@ mutable struct HsmTest <: Hsm.AbstractHsmStateMachine
     # Variables used by the AbstractHsmStateMachine interface
     current::Symbol
     source::Symbol
-    event::Symbol
 
     # State machine specific variables. For instance this buffer could be used to store the event data
     buf::Vector{UInt8}
@@ -38,7 +37,6 @@ Hsm.current(sm::HsmTest) = sm.current
 Hsm.current!(sm::HsmTest, s::Symbol) = sm.current = s
 Hsm.source(sm::HsmTest) = sm.source
 Hsm.source!(sm::HsmTest, s::Symbol) = sm.source = s
-Hsm.event(sm::HsmTest) = sm.event
 
 # Define all states
 const Top = Hsm.Root
@@ -58,10 +56,9 @@ Hsm.ancestor(sm::HsmTest, ::Val{State_S21}) = State_S2
 Hsm.ancestor(sm::HsmTest, ::Val{State_S211}) = State_S21
 
 # Define a dispatch function. Custom dispatch functions can be defined for each state machine
-function dispatch!(sm::HsmTest, event)
+function dispatch!(sm::HsmTest, event, arg=nothing)
     #print("$(event) - ")
-    sm.event = event
-    Hsm.dispatch!(sm)
+    Hsm.dispatch!(sm, event, arg)
     #print("\n")
 end
 
@@ -98,13 +95,13 @@ Hsm.on_initial!(sm::HsmTest, state::Val{State_S}) =
 #     # Do something when exiting the state
 # end
 
-Hsm.on_event!(sm::HsmTest, state::Val{State_S}, event::Val{:Event_E}) =
+Hsm.on_event!(sm::HsmTest, state::Val{State_S}, event::Val{:Event_E}, arg) =
     # transition! returns EventHandled if the transition is successful
     Hsm.transition!(sm, State_S11) do
         #print("$(state)-$(event);")
     end
 
-function Hsm.on_event!(sm::HsmTest, state::Val{State_S}, event::Val{:Event_I})
+function Hsm.on_event!(sm::HsmTest, state::Val{State_S}, event::Val{:Event_I}, arg)
     # Depending on the guard condition foo, the event can be handled or not
     if sm.foo == 1
         #print("$(state)-$(event);")
@@ -122,22 +119,22 @@ Hsm.on_initial!(sm::HsmTest, state::Val{State_S1}) =
         #print("$(state)-INIT;")
     end
 
-Hsm.on_event!(sm::HsmTest, state::Val{State_S1}, event::Val{:Event_A}) =
+Hsm.on_event!(sm::HsmTest, state::Val{State_S1}, event::Val{:Event_A}, arg) =
     Hsm.transition!(sm, State_S1) do
         #print("$(state)-$(event);")
     end
 
-Hsm.on_event!(sm::HsmTest, state::Val{State_S1}, event::Val{:Event_B}) =
+Hsm.on_event!(sm::HsmTest, state::Val{State_S1}, event::Val{:Event_B}, arg) =
     Hsm.transition!(sm, State_S11) do
         #print("$(state)-$(event);")
     end
 
-Hsm.on_event!(sm::HsmTest, state::Val{State_S1}, event::Val{:Event_C}) =
+Hsm.on_event!(sm::HsmTest, state::Val{State_S1}, event::Val{:Event_C}, arg) =
     Hsm.transition!(sm, State_S2) do
         #print("$(state)-$(event);")
     end
 
-function Hsm.on_event!(sm::HsmTest, state::Val{State_S1}, event::Val{:Event_D})
+function Hsm.on_event!(sm::HsmTest, state::Val{State_S1}, event::Val{:Event_D}, arg)
     if sm.foo == 0
         return Hsm.transition!(sm, State_S1) do
             #print("$(state)-$(event);")
@@ -148,19 +145,19 @@ function Hsm.on_event!(sm::HsmTest, state::Val{State_S1}, event::Val{:Event_D})
     end
 end
 
-Hsm.on_event!(sm::HsmTest, state::Val{State_S1}, event::Val{:Event_F}) =
+Hsm.on_event!(sm::HsmTest, state::Val{State_S1}, event::Val{:Event_F}, arg) =
     Hsm.transition!(sm, State_S211) do
         #print("$(state)-$(event);")
     end
 
-function Hsm.on_event!(sm::HsmTest, state::Val{State_S1}, event::Val{:Event_I})
+function Hsm.on_event!(sm::HsmTest, state::Val{State_S1}, event::Val{:Event_I}, arg)
     #print("$(state)-$(event);")
     return Hsm.EventHandled
 end
 
 #############
 
-function Hsm.on_event!(sm::HsmTest, state::Val{State_S11}, event::Val{:Event_D})
+function Hsm.on_event!(sm::HsmTest, state::Val{State_S11}, event::Val{:Event_D}, arg)
     if sm.foo == 1
         return Hsm.transition!(sm, State_S1) do
             #print("$(state)-$(event);")
@@ -171,12 +168,12 @@ function Hsm.on_event!(sm::HsmTest, state::Val{State_S11}, event::Val{:Event_D})
     end
 end
 
-Hsm.on_event!(sm::HsmTest, state::Val{State_S11}, event::Val{:Event_G}) =
+Hsm.on_event!(sm::HsmTest, state::Val{State_S11}, event::Val{:Event_G}, arg) =
     Hsm.transition!(sm, State_S211) do
         #print("$(state)-$(event);")
     end
 
-Hsm.on_event!(sm::HsmTest, state::Val{State_S11}, event::Val{:Event_H}) =
+Hsm.on_event!(sm::HsmTest, state::Val{State_S11}, event::Val{:Event_H}, arg) =
     Hsm.transition!(sm, State_S) do
         #print("$(state)-$(event);")
     end
@@ -188,17 +185,17 @@ Hsm.on_initial!(sm::HsmTest, state::Val{State_S2}) =
         #print("$(state)-INIT;")
     end
 
-Hsm.on_event!(sm::HsmTest, state::Val{State_S2}, event::Val{:Event_C}) =
+Hsm.on_event!(sm::HsmTest, state::Val{State_S2}, event::Val{:Event_C}, arg) =
     Hsm.transition!(sm, State_S1) do
         #print("$(state)-$(event);")
     end
 
-Hsm.on_event!(sm::HsmTest, state::Val{State_S2}, event::Val{:Event_F}) =
+Hsm.on_event!(sm::HsmTest, state::Val{State_S2}, event::Val{:Event_F}, arg) =
     Hsm.transition!(sm, State_S11) do
         #print("$(state)-$(event);")
     end
 
-function Hsm.on_event!(sm::HsmTest, state::Val{State_S2}, event::Val{:Event_I})
+function Hsm.on_event!(sm::HsmTest, state::Val{State_S2}, event::Val{:Event_I}, arg)
     if sm.foo == 0
         #print("$(state)-$(event);")
         sm.foo = 1
@@ -215,29 +212,29 @@ Hsm.on_initial!(sm::HsmTest, state::Val{State_S21}) =
         #print("$(state)-INIT;")
     end
 
-Hsm.on_event!(sm::HsmTest, state::Val{State_S21}, event::Val{:Event_A}) =
+Hsm.on_event!(sm::HsmTest, state::Val{State_S21}, event::Val{:Event_A}, arg) =
     Hsm.transition!(sm, State_S21) do
         #print("$(state)-$(event);")
     end
 
-Hsm.on_event!(sm::HsmTest, state::Val{State_S21}, event::Val{:Event_B}) =
+Hsm.on_event!(sm::HsmTest, state::Val{State_S21}, event::Val{:Event_B}, arg) =
     Hsm.transition!(sm, State_S211) do
         #print("$(state)-$(event);")
     end
 
-Hsm.on_event!(sm::HsmTest, state::Val{State_S21}, event::Val{:Event_G}) =
+Hsm.on_event!(sm::HsmTest, state::Val{State_S21}, event::Val{:Event_G}, arg) =
     Hsm.transition!(sm, State_S11) do
         #print("$(state)-$(event);")
     end
 
 #############
 
-Hsm.on_event!(sm::HsmTest, state::Val{State_S211}, event::Val{:Event_D}) =
+Hsm.on_event!(sm::HsmTest, state::Val{State_S211}, event::Val{:Event_D}, arg) =
     Hsm.transition!(sm, State_S21) do
         #print("$(state)-$(event);")
     end
 
-Hsm.on_event!(sm::HsmTest, state::Val{State_S211}, event::Val{:Event_H}) =
+Hsm.on_event!(sm::HsmTest, state::Val{State_S211}, event::Val{:Event_H}, arg) =
     Hsm.transition!(sm, State_S) do
         #print("$(state)-$(event);")
     end

@@ -15,7 +15,6 @@ Interface definition:
 | `current!(sm, state)`    | Set current state of state machine `sm` to `state`  |
 | `source(sm)`             | Get source state of state machine `sm`              |
 | `source!(sm, state)`     | Set source state of state machine `sm` to `state`   |
-| `event(sm)`              | Get event of state machine `sm`                     |
 
 # Example
 ```julia
@@ -23,7 +22,6 @@ mutable struct HsmTest <: Hsm.AbstractHsmStateMachine
     # Variables used by the AbstractHsmStateMachine interface
     current::Symbol
     source::Symbol
-    event::Symbol
 
     # `foo` is an example of a state machine specific variable
     foo::Int
@@ -41,7 +39,6 @@ Hsm.current(sm::HsmTest) = sm.current
 Hsm.current!(sm::HsmTest, s::Symbol) = sm.current = s
 Hsm.source(sm::HsmTest) = sm.source
 Hsm.source!(sm::HsmTest, s::Symbol) = sm.source = s
-Hsm.event(sm::HsmTest) = sm.event
 
 # Define all states
 const Top = Hsm.Root
@@ -134,18 +131,6 @@ Hsm.source!(sm::HsmTest, state) = sm.source = state
 ```
 """
 function source! end
-
-"""
-    event(sm::AbstractHsmStateMachine)
-
-Get event of state machine `sm`.
-
-# Implementation Example
-```julia
-Hsm.event(sm::HsmTest) == sm.event
-```
-"""
-function event end
 
 """
     on_event_handled(sm::AbstractHsmStateMachine)
@@ -260,7 +245,7 @@ end
 @valsplit on_exit!(sm::AbstractHsmStateMachine, Val(state::StateType)) = nothing
 
 """
-    on_event!(sm::AbstractHsmStateMachine, state::Val{STATE}, event::Val{:EVENT})
+    on_event!(sm::AbstractHsmStateMachine, state::Val{STATE}, event::Val{:EVENT}, arg)
 
 Handle `event` in `state` of state machine `sm`.
 
@@ -269,7 +254,7 @@ Return [`EventHandled`](@ref) if `event` was handled or [`EventNotHandled`](@ref
 # Example
 To define an event handler for `sm`=HsmTest, state=State_S1, `event`=:Event_D 
 ```julia
-function Hsm.on_event!(sm::HsmTest, state::Val{State_S1}, event::Val{:Event_D})
+function Hsm.on_event!(sm::HsmTest, state::Val{State_S1}, event::Val{:Event_D}, arg)
     if sm.foo == 0
         return Hsm.transition!(sm, State_S1) do
             sm.foo = 0
@@ -281,7 +266,7 @@ end
 ```
 Or if the `event` is an internal transition which does not change the state:
 ```julia
-function Hsm.on_event!(sm::HsmTest, state::Val{State_S2}, event::Val{:Event_I})
+function Hsm.on_event!(sm::HsmTest, state::Val{State_S2}, event::Val{:Event_I}, arg)
     if sm.foo == 0
         sm.foo = 1
         return EventHandled
@@ -295,6 +280,7 @@ end
     sm::AbstractHsmStateMachine,
     Val(state::StateType),
     Val(event::Symbol),
+    arg
 )
     # Events are considered handled if they reach the root state
     if state == Root
@@ -410,18 +396,17 @@ function find_lca(sm, s, t)
 end
 
 """
-    dispatch!(sm::AbstractHsmStateMachine)
+    dispatch!(sm::AbstractHsmStateMachine, event, arg=nothing)
 
 Dispatch the event in state machine `sm`.
 """
-function dispatch!(sm::AbstractHsmStateMachine)
+function dispatch!(sm::AbstractHsmStateMachine, event, arg=nothing)
     prev = s = current(sm)
-    e = event(sm)
 
     # Find the main source state by calling on_event! until the event is handled
     while true
         source!(sm, s)
-        if on_event!(sm, s, e) == EventHandled
+        if on_event!(sm, s, event, arg) == EventHandled
             on_event_handled(sm)
             return
         end
@@ -435,7 +420,7 @@ end
 
 export AbstractHsmStateMachine
 export EventHandled, EventNotHandled, Root
-export current, current!, source, source!, event, ancestor
+export current, current!, source, source!, ancestor
 export initialize!
 export on_initial!, on_entry!, on_exit!, on_event!
 export transition!, dispatch!
