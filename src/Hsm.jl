@@ -20,8 +20,8 @@ Interface definition:
 ```julia
 mutable struct HsmTest <: Hsm.AbstractHsmStateMachine
     # Variables used by the AbstractHsmStateMachine interface
-    current::Symbol
-    source::Symbol
+    current::EventType
+    source::EventType
 
     # `foo` is an example of a state machine specific variable
     foo::Int
@@ -36,9 +36,9 @@ end
 
 # Implement the AbstractHsmStateMachine interface
 Hsm.current(sm::HsmTest) = sm.current
-Hsm.current!(sm::HsmTest, s::Symbol) = sm.current = s
+Hsm.current!(sm::HsmTest, s::EventType) = sm.current = s
 Hsm.source(sm::HsmTest) = sm.source
-Hsm.source!(sm::HsmTest, s::Symbol) = sm.source = s
+Hsm.source!(sm::HsmTest, s::EventType) = sm.source = s
 
 # Define all states
 const Top = Hsm.Root
@@ -60,6 +60,7 @@ Hsm.ancestor(sm::HsmTest, ::Val{State_S211}) = State_S21
 """
 abstract type AbstractHsmStateMachine end
 const StateType = Symbol
+const EventType = Symbol
 
 """
     EventReturn
@@ -133,18 +134,18 @@ Hsm.source!(sm::HsmTest, state) = sm.source = state
 function source! end
 
 """
-    on_event_handled(sm::AbstractHsmStateMachine)
+    on_event_handled(sm::AbstractHsmStateMachine, event, arg)
 
 Called when an event is handled by the state machine.
 
 # Implementation Example
 ```julia
-function Hsm.event_handled(sm::HsmTest)
+function Hsm.event_handled(sm::HsmTest, event, arg)
     # Do something when the event is handled
 end
 ```
 """
-on_event_handled(::AbstractHsmStateMachine) = nothing
+on_event_handled(::AbstractHsmStateMachine, event, arg) = nothing
 
 """
     on_state_changed(sm::AbstractHsmStateMachine)
@@ -279,7 +280,7 @@ end
 @valsplit function on_event!(
     sm::AbstractHsmStateMachine,
     Val(state::StateType),
-    Val(event::Symbol),
+    Val(event::EventType),
     arg
 )
     # Events are considered handled if they reach the root state
@@ -407,7 +408,7 @@ function dispatch!(sm::AbstractHsmStateMachine, event, arg=nothing)
     while true
         source!(sm, s)
         if on_event!(sm, s, event, arg) == EventHandled
-            on_event_handled(sm)
+            on_event_handled(sm, event, arg)
             return
         end
         s = ancestor(sm, s)
