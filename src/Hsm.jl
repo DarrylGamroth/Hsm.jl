@@ -134,34 +134,6 @@ Hsm.source!(sm::HsmTest, state) = sm.source = state
 function source! end
 
 """
-    on_event_handled(sm::AbstractHsmStateMachine, event, arg)
-
-Called when an event is handled by the state machine.
-
-# Implementation Example
-```julia
-function Hsm.event_handled(sm::HsmTest, event, arg)
-    # Do something when the event is handled
-end
-```
-"""
-on_event_handled(::AbstractHsmStateMachine, event, arg) = nothing
-
-"""
-    on_state_changed(sm::AbstractHsmStateMachine)
-
-Called when the state of the state machine changes.
-
-# Implementation Example
-```julia
-function Hsm.on_state_changed(sm::HsmTest)
-    # Do something when the state changes
-end
-```
-"""
-on_state_changed(::AbstractHsmStateMachine) = nothing
-
-"""
     initialize!(sm::AbstractHsmStateMachine)
 
 Initialize state machine `sm`.
@@ -283,10 +255,6 @@ end
     Val(event::EventType),
     arg
 )
-    # Events are considered handled if they reach the root state
-    if state == Root
-        return EventHandled
-    end
     return EventNotHandled
 end
 
@@ -402,21 +370,18 @@ end
 Dispatch the event in state machine `sm`.
 """
 function dispatch!(sm::AbstractHsmStateMachine, event, arg=nothing)
-    prev = s = current(sm)
+    s = current(sm)
 
     # Find the main source state by calling on_event! until the event is handled
-    while true
+    while s != Root
         source!(sm, s)
         if on_event!(sm, s, event, arg) == EventHandled
-            on_event_handled(sm, event, arg)
-            return
+            return EventHandled
         end
         s = ancestor(sm, s)
     end
 
-    if prev != current(sm)
-        on_state_changed(sm)
-    end
+    return EventNotHandled
 end
 
 export AbstractHsmStateMachine
