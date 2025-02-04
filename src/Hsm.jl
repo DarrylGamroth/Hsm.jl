@@ -157,9 +157,11 @@ Hsm.ancestor(sm::HsmTest, ::Val{State_S}) = Root
 ```
 """
 @valsplit function ancestor(sm::AbstractHsmStateMachine, Val(state::StateType))
-    @error "No ancestor for state $state"
+    error("No ancestor for state $state")
     return Root
 end
+
+ancestor(::AbstractHsmStateMachine, ::Val{Root}) = Root
 
 """
     on_initial!(sm::AbstractHsmStateMachine, state::Val{STATE})
@@ -373,11 +375,12 @@ function dispatch!(sm::AbstractHsmStateMachine, event, arg=nothing)
     s = current(sm)
 
     # Find the main source state by calling on_event! until the event is handled
-    while s != Root
+    while true
         source!(sm, s)
         if on_event!(sm, s, event, arg) == EventHandled
             return EventHandled
         end
+        s != Root || break
         s = ancestor(sm, s)
     end
 
