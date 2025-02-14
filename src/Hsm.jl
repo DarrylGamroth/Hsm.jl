@@ -20,8 +20,8 @@ Interface definition:
 ```julia
 mutable struct HsmTest <: Hsm.AbstractHsmStateMachine
     # Variables used by the AbstractHsmStateMachine interface
-    current::EventType
-    source::EventType
+    current::StateType
+    source::StateType
 
     # `foo` is an example of a state machine specific variable
     foo::Int
@@ -36,9 +36,9 @@ end
 
 # Implement the AbstractHsmStateMachine interface
 Hsm.current(sm::HsmTest) = sm.current
-Hsm.current!(sm::HsmTest, s::EventType) = sm.current = s
+Hsm.current!(sm::HsmTest, s::StateType) = sm.current = s
 Hsm.source(sm::HsmTest) = sm.source
-Hsm.source!(sm::HsmTest, s::EventType) = sm.source = s
+Hsm.source!(sm::HsmTest, s::StateType) = sm.source = s
 
 # Define all states
 const Top = Hsm.Root
@@ -260,7 +260,7 @@ end
     return EventNotHandled
 end
 
-function do_entry!(sm, s, t)
+function do_entry!(sm::AbstractHsmStateMachine, s::StateType, t::StateType)
     if s == t
         return
     end
@@ -269,7 +269,7 @@ function do_entry!(sm, s, t)
     return
 end
 
-function do_exit!(sm, s, t)
+function do_exit!(sm::AbstractHsmStateMachine, s::StateType, t::StateType)
     while s != t
         on_exit!(sm, s)
         s = ancestor(sm, s)
@@ -278,8 +278,8 @@ function do_exit!(sm, s, t)
 end
 
 """
-    transition!(sm::AbstractHsmStateMachine, t)
-    transition!(action::Function, sm::AbstractHsmStateMachine, t)
+    transition!(sm::AbstractHsmStateMachine, t::StateType)
+    transition!(action::Function, sm::AbstractHsmStateMachine, t::StateType)
 
 Transition state machine `sm` to state `t`.
 The `action` function will be called, if specified, during the transition when the main source state has
@@ -293,11 +293,11 @@ transition!(sm, State_S2) do
 end
 ```
 """
-function transition!(sm::AbstractHsmStateMachine, t)
+function transition!(sm::AbstractHsmStateMachine, t::StateType)
     transition!(Returns(nothing), sm, t)
 end
 
-function transition!(action::Function, sm::AbstractHsmStateMachine, t)
+function transition!(action::Function, sm::AbstractHsmStateMachine, t::StateType)
     c = current(sm)
     s = source(sm)
     lca = find_lca(sm, s, t)
@@ -342,36 +342,55 @@ function isancestorof(sm, a, b)
 end
 
 """
-    find_lca(sm::AbstractHsmStateMachine, s, t)
+    find_lca(sm::AbstractHsmStateMachine, s::StateType, t::StateType)
 
 Find the least common ancestor of states `s` and `t` in state machine `sm`.
 
 Returns the least common ancestor of `s` and `t` or [`Root`](@ref) if no common ancestor is found.
 """
-function find_lca(sm, s, t)
+# function find_lca(sm::AbstractHsmStateMachine, s::StateType, t::StateType)
+#     # Handle case where main source is equal to target
+#     if s == t
+#         return ancestor(sm, s)
+#     end
+
+#     while s != Root && t != Root
+#         if s == t
+#             return s
+#         elseif isancestorof(sm, s, t)
+#             t = ancestor(sm, t)
+#         else
+#             s = ancestor(sm, s)
+#         end
+#     end
+#     return Root
+# end
+
+@inline function find_lca(sm::AbstractHsmStateMachine, s::StateType, t::StateType)
     # Handle case where main source is equal to target
     if s == t
         return ancestor(sm, s)
     end
 
-    while s != Root && t != Root
-        if s == t
-            return s
-        elseif isancestorof(sm, s, t)
-            t = ancestor(sm, t)
-        else
-            s = ancestor(sm, s)
+    while s != Root
+        t1 = t
+        while t1 != Root
+            if t1 == s
+                return t1
+            end
+            t1 = ancestor(sm, t1)
         end
+        s = ancestor(sm, s)
     end
     return Root
 end
 
 """
-    dispatch!(sm::AbstractHsmStateMachine, event, arg=nothing)
+    dispatch!(sm::AbstractHsmStateMachine, event::EventType, arg=nothing)
 
 Dispatch the event in state machine `sm`.
 """
-function dispatch!(sm::AbstractHsmStateMachine, event, arg=nothing)
+function dispatch!(sm::AbstractHsmStateMachine, event::EventType, arg=nothing)
     s = current(sm)
 
     # Find the main source state by calling on_event! until the event is handled
