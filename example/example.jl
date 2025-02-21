@@ -242,27 +242,28 @@ Hsm.on_event!(sm::HsmTest, state::Val{State_S211}, event::Val{:Event_H}, arg) =
 #############
 
 function test(sm::HsmTest)
-    dispatch!(sm, :Event_A)
-    dispatch!(sm, :Event_B)
-    dispatch!(sm, :Event_D)
-    dispatch!(sm, :Event_E)
-    dispatch!(sm, :Event_I)
-    dispatch!(sm, :Event_F)
-    dispatch!(sm, :Event_I)
-    dispatch!(sm, :Event_I)
-    dispatch!(sm, :Event_F)
-    dispatch!(sm, :Event_A)
-    dispatch!(sm, :Event_B)
-    dispatch!(sm, :Event_D)
-    dispatch!(sm, :Event_D)
-    dispatch!(sm, :Event_E)
-    dispatch!(sm, :Event_G)
-    dispatch!(sm, :Event_H)
-    dispatch!(sm, :Event_H)
-    dispatch!(sm, :Event_C)
-    dispatch!(sm, :Event_G)
-    dispatch!(sm, :Event_C)
-    dispatch!(sm, :Event_C)
+    event_sequence = (
+        :Event_A, :Event_B, :Event_D, :Event_E, :Event_I, :Event_F, :Event_I, :Event_I, :Event_F,
+        :Event_A, :Event_B, :Event_D, :Event_D, :Event_E, :Event_G, :Event_H, :Event_H, :Event_C,
+        :Event_G, :Event_C, :Event_C
+    )
+    for event in event_sequence
+        dispatch!(sm, event)
+    end
+end
+
+function random_event()
+    events = (:Event_A, :Event_B, :Event_C, :Event_D, :Event_E, :Event_F, :Event_G, :Event_H, :Event_I)
+    return rand(events)
+end
+
+# Example usage of random_event function
+function test2(sm::HsmTest)
+    for _ in 1:1000
+        event = random_event()
+        dispatch!(sm, event)
+    end
+    nothing
 end
 
 hsm = HsmTest()
@@ -270,7 +271,7 @@ test(hsm)
 
 function profile_test(hsm, n)
     for _ = 1:n
-        test(hsm)
+        test2(hsm)
     end
 end
 
