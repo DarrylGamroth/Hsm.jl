@@ -1,10 +1,4 @@
 """
-    Hsm.jl Macros for Hierarchical State Machines
-
-This module provides macros for defining hierarchical state machines in a modular way.
-"""
-
-"""
     extract_sm_arg(argtuple, macro_name)
     
 Internal helper function to extract state machine argument from macro function definitions.

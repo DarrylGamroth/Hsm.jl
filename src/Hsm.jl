@@ -6,11 +6,15 @@ using ValSplit
 const StateType = Symbol
 const EventType = Symbol
 
-# Include all macros from HsmMacros.jl
-include("HsmMacros.jl")
+include("macros.jl")
 
-# Export macros
+export EventHandled, EventNotHandled, Root
+export current, current!, source, source!, ancestor
+export initialize!
+export on_initial!, on_entry!, on_exit!, on_event!
+export transition!, dispatch!
 export @on_event, @on_initial, @ancestor, @on_entry, @on_exit, @hsmdef
+
 
 """
     EventReturn
@@ -35,9 +39,52 @@ const Top = Hsm.Root
 """
 const Root = :Root
 
+"""
+    current(sm)
+
+Get current state of state machine `sm`.
+
+# Implementation Example
+```julia
+Hsm.current(sm::HsmTest) = sm.current
+```
+"""
 function current end
+
+"""
+    current!(sm, state::StateType)
+
+Set current state of state machine `sm` to `state`.
+
+# Implementation Example
+```julia
+Hsm.current!(sm::HsmTest, state) = sm.current = state
+```
+"""
 function current! end
+
+"""
+    source(sm)
+
+Get source state of state machine `sm`.
+
+# Implementation Example
+```julia
+Hsm.source(sm::HsmTest) = sm.source
+```
+"""
 function source end
+
+"""
+    source!(sm, state::StateType)
+
+Set source state of state machine `sm` to `state`.
+
+# Implementation Example
+```julia
+Hsm.source!(sm::HsmTest, state) = sm.source = state
+```
+"""
 function source! end
 
 """
@@ -304,11 +351,5 @@ function dispatch!(sm, event::EventType, arg=nothing)
 
     return EventNotHandled
 end
-
-export EventHandled, EventNotHandled, Root
-export current, current!, source, source!, ancestor
-export initialize!
-export on_initial!, on_entry!, on_exit!, on_event!
-export transition!, dispatch!
 
 end # module Hsm
