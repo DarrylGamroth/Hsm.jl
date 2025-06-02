@@ -2,65 +2,15 @@ module Hsm
 
 using ValSplit
 
-"""
-    AbstractHsmStateMachine
-
-Interface type for a hierarchical state machine.
-
-Interface definition:
-
-| Required Methods         | Description                                         |
-|--------------------------|-----------------------------------------------------|
-| `current(sm)`            | Get current state of state machine `sm`             |
-| `current!(sm, state)`    | Set current state of state machine `sm` to `state`  |
-| `source(sm)`             | Get source state of state machine `sm`              |
-| `source!(sm, state)`     | Set source state of state machine `sm` to `state`   |
-
-# Example
-```julia
-mutable struct HsmTest <: Hsm.AbstractHsmStateMachine
-    # Variables used by the AbstractHsmStateMachine interface
-    current::StateType
-    source::StateType
-
-    # `foo` is an example of a state machine specific variable
-    foo::Int
-
-    function HsmTest()
-        sm = new()
-        # Initialize the state machine
-        Hsm.initialize!(sm)
-        return sm
-    end
-end
-
-# Implement the AbstractHsmStateMachine interface
-Hsm.current(sm::HsmTest) = sm.current
-Hsm.current!(sm::HsmTest, s::StateType) = sm.current = s
-Hsm.source(sm::HsmTest) = sm.source
-Hsm.source!(sm::HsmTest, s::StateType) = sm.source = s
-
-# Define all states
-const Top = Hsm.Root
-const State_S = :State_S
-const State_S1 = :State_S1
-const State_S11 = :State_S11
-const State_S2 = :State_S2
-const State_S21 = :State_S21
-const State_S211 = :State_S211
-
-# Implement the AbstractHsmStateMachine ancestor interface for each state
-Hsm.ancestor(sm::HsmTest, ::Val{State_S}) = Top
-Hsm.ancestor(sm::HsmTest, ::Val{State_S1}) = State_S
-Hsm.ancestor(sm::HsmTest, ::Val{State_S11}) = State_S1
-Hsm.ancestor(sm::HsmTest, ::Val{State_S2}) = State_S
-Hsm.ancestor(sm::HsmTest, ::Val{State_S21}) = State_S2
-Hsm.ancestor(sm::HsmTest, ::Val{State_S211}) = State_S21
-```
-"""
-abstract type AbstractHsmStateMachine end
+# State and event types
 const StateType = Symbol
 const EventType = Symbol
+
+# Include all macros from HsmMacros.jl
+include("HsmMacros.jl")
+
+# Export macros
+export @on_event, @on_initial, @ancestor, @on_entry, @on_exit, @hsmdef
 
 """
     EventReturn
@@ -85,67 +35,24 @@ const Top = Hsm.Root
 """
 const Root = :Root
 
-"""
-    current(sm::AbstractHsmStateMachine)
-
-Get current state of state machine `sm`.
-
-# Implementation Example
-```julia
-Hsm.current(sm::HsmTest) = sm.current
-```
-"""
 function current end
-
-"""
-    current!(sm::AbstractHsmStateMachine, state::StateType)
-
-Set current state of state machine `sm` to `state`.
-
-# Implementation Example
-```julia
-Hsm.current!(sm::HsmTest, state) = sm.current = state
-```
-"""
 function current! end
-
-"""
-    source(sm::AbstractHsmStateMachine)
-
-Get source state of state machine `sm`.
-
-# Implementation Example
-```julia
-Hsm.source(sm::HsmTest) = sm.source
-```
-"""
 function source end
-
-"""
-    source!(sm::AbstractHsmStateMachine, state::StateType)
-
-Set source state of state machine `sm` to `state`.
-
-# Implementation Example
-```julia
-Hsm.source!(sm::HsmTest, state) = sm.source = state
-```
-"""
 function source! end
 
 """
-    initialize!(sm::AbstractHsmStateMachine)
+    initialize!(sm)
 
 Initialize state machine `sm`.
 """
-function initialize!(sm::AbstractHsmStateMachine)
+function initialize!(sm)
     current!(sm, Root)
     source!(sm, Root)
     on_initial!(sm, Root)
 end
 
 """
-    ancestor(sm::AbstractHsmStateMachine, state::Val{STATE})
+    ancestor(sm, state::Val{STATE})
 
 Get ancestor (superstate) of `state` in state machine `sm`. Ensure the top most state
 ancestor is [`Root`](@ref).
@@ -156,15 +63,15 @@ To speficfy the ancestor for `sm`=HsmState State_S is [`Root`](@ref):
 Hsm.ancestor(sm::HsmTest, ::Val{State_S}) = Root
 ```
 """
-@valsplit function ancestor(sm::AbstractHsmStateMachine, Val(state::StateType))
+@valsplit function ancestor(sm, Val(state::StateType))
     error("No ancestor for state $state")
     return Root
 end
 
-ancestor(::AbstractHsmStateMachine, ::Val{Root}) = Root
+ancestor(sm, ::Val{Root}) = Root
 
 """
-    on_initial!(sm::AbstractHsmStateMachine, state::Val{STATE})
+    on_initial!(sm, state::Val{STATE})
 
 Handle initial transition to `state` in state machine `sm`.
 
@@ -189,10 +96,10 @@ Hsm.on_initial!(sm::HsmTest, state::Val{State_S}) =
     end
 ```
 """
-@valsplit on_initial!(sm::AbstractHsmStateMachine, Val(state::StateType)) = EventHandled
+@valsplit on_initial!(sm, Val(state::StateType)) = EventHandled
 
 """
-    on_entry!(sm::AbstractHsmStateMachine, state::Val{STATE})
+    on_entry!(sm, state::Val{STATE})
 
 Entry action for `state` in state machine `sm`.
 
@@ -203,10 +110,10 @@ function Hsm.on_entry!(sm::HsmTest, state::Val{State_S2})
 end
 ```
 """
-@valsplit on_entry!(sm::AbstractHsmStateMachine, Val(state::StateType)) = nothing
+@valsplit on_entry!(sm, Val(state::StateType)) = nothing
 
 """
-    on_exit!(sm::AbstractHsmStateMachine, state::Val{STATE})
+    on_exit!(sm, state::Val{STATE})
 
 Exit action for `state` in state machine `sm`.
 
@@ -217,17 +124,17 @@ function Hsm.on_exit!(sm::HsmTest, state::Val{State_S2})
 end
 ```
 """
-@valsplit on_exit!(sm::AbstractHsmStateMachine, Val(state::StateType)) = nothing
+@valsplit on_exit!(sm, Val(state::StateType)) = nothing
 
 """
-    on_event!(sm::AbstractHsmStateMachine, state::Val{STATE}, event::Val{:EVENT}, arg)
+    on_event!(sm, state::Val{STATE}, event::Val{:EVENT}, arg)
 
 Handle `event` in `state` of state machine `sm`.
 
 Return [`EventHandled`](@ref) if `event` was handled or [`EventNotHandled`](@ref) if `event` was not handled.
 
 # Example
-To define an event handler for `sm`=HsmTest, state=State_S1, `event`=:Event_D 
+To define an event handler for `sm`=HsmTest, state=State_S1, `event`=:Event_D
 ```julia
 function Hsm.on_event!(sm::HsmTest, state::Val{State_S1}, event::Val{:Event_D}, arg)
     if sm.foo == 0
@@ -252,7 +159,7 @@ end
 ```
 """
 @valsplit function on_event!(
-    sm::AbstractHsmStateMachine,
+    sm,
     Val(state::StateType),
     Val(event::EventType),
     arg
@@ -260,7 +167,7 @@ end
     return EventNotHandled
 end
 
-function do_entry!(sm::AbstractHsmStateMachine, s::StateType, t::StateType)
+function do_entry!(sm, s::StateType, t::StateType)
     if s == t
         return
     end
@@ -269,7 +176,7 @@ function do_entry!(sm::AbstractHsmStateMachine, s::StateType, t::StateType)
     return
 end
 
-function do_exit!(sm::AbstractHsmStateMachine, s::StateType, t::StateType)
+function do_exit!(sm, s::StateType, t::StateType)
     while s != t
         on_exit!(sm, s)
         s = ancestor(sm, s)
@@ -278,8 +185,8 @@ function do_exit!(sm::AbstractHsmStateMachine, s::StateType, t::StateType)
 end
 
 """
-    transition!(sm::AbstractHsmStateMachine, t::StateType)
-    transition!(action::Function, sm::AbstractHsmStateMachine, t::StateType)
+    transition!(sm, t::StateType)
+    transition!(action::Function, sm, t::StateType)
 
 Transition state machine `sm` to state `t`.
 The `action` function will be called, if specified, during the transition when the main source state has
@@ -293,11 +200,11 @@ transition!(sm, State_S2) do
 end
 ```
 """
-function transition!(sm::AbstractHsmStateMachine, t::StateType)
+function transition!(sm, t::StateType)
     transition!(Returns(nothing), sm, t)
 end
 
-function transition!(action::Function, sm::AbstractHsmStateMachine, t::StateType)
+function transition!(action::Function, sm, t::StateType)
     c = current(sm)
     s = source(sm)
     lca = find_lca(sm, s, t)
@@ -319,7 +226,7 @@ function transition!(action::Function, sm::AbstractHsmStateMachine, t::StateType
 end
 
 """
-    isancestorof(sm::AbstractHsmStateMachine, a, b)
+    isancestorof(sm, a, b)
 
 Check if state `a` is an ancestor (superstate) of state `b` in state machine `sm`.
 
@@ -329,44 +236,36 @@ false == isancestorof(sm, State_S1, State_S2)
 ```
 """
 function isancestorof(sm, a, b)
+    # Root is an ancestor of everything (including itself)
     if a == Root
+        return true
+    end
+
+    # A state is not its own ancestor (except Root)
+    if a == b
         return false
     end
+
+    # Traverse up the hierarchy from b
     while b != Root
+        b = ancestor(sm, b)
         if a == b
             return true
         end
-        b = ancestor(sm, b)
     end
+
     return false
 end
 
 """
-    find_lca(sm::AbstractHsmStateMachine, s::StateType, t::StateType)
+    find_lca(sm, s::StateType, t::StateType)
 
 Find the least common ancestor of states `s` and `t` in state machine `sm`.
 
 Returns the least common ancestor of `s` and `t` or [`Root`](@ref) if no common ancestor is found.
 """
-# function find_lca(sm::AbstractHsmStateMachine, s::StateType, t::StateType)
-#     # Handle case where main source is equal to target
-#     if s == t
-#         return ancestor(sm, s)
-#     end
 
-#     while s != Root && t != Root
-#         if s == t
-#             return s
-#         elseif isancestorof(sm, s, t)
-#             t = ancestor(sm, t)
-#         else
-#             s = ancestor(sm, s)
-#         end
-#     end
-#     return Root
-# end
-
-@inline function find_lca(sm::AbstractHsmStateMachine, s::StateType, t::StateType)
+@inline function find_lca(sm, s::StateType, t::StateType)
     # Handle case where main source is equal to target
     if s == t
         return ancestor(sm, s)
@@ -386,11 +285,11 @@ Returns the least common ancestor of `s` and `t` or [`Root`](@ref) if no common 
 end
 
 """
-    dispatch!(sm::AbstractHsmStateMachine, event::EventType, arg=nothing)
+    dispatch!(sm, event::EventType, arg=nothing)
 
 Dispatch the event in state machine `sm`.
 """
-function dispatch!(sm::AbstractHsmStateMachine, event::EventType, arg=nothing)
+function dispatch!(sm, event::EventType, arg=nothing)
     s = current(sm)
 
     # Find the main source state by calling on_event! until the event is handled
@@ -406,7 +305,6 @@ function dispatch!(sm::AbstractHsmStateMachine, event::EventType, arg=nothing)
     return EventNotHandled
 end
 
-export AbstractHsmStateMachine
 export EventHandled, EventNotHandled, Root
 export current, current!, source, source!, ancestor
 export initialize!
