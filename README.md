@@ -13,6 +13,8 @@ Hsm.jl provides a framework for implementing hierarchical state machines (HSMs) 
 - **Clean macro-based syntax**: Simple macros for defining state machine behavior
 - **Automatic initialization**: State machines are auto-initialized when created
 - **Modular organization**: Support for distributing state handlers across multiple files
+- **Default event handlers**: Support for catch-all handlers that process any unhandled event
+- **Event tracking**: Automatic tracking of the current event being processed
 
 ## Installation
 
@@ -52,10 +54,17 @@ end
     return Hsm.transition!(sm, :Off)
 end
 
+# Define a default event handler for any unhandled event
+@on_event :Off Any function(sm::LightSwitch, arg)
+    println("Unhandled event in Off state: $(Hsm.event(sm))")
+    return Hsm.EventNotHandled
+end
+
 # Initialize and use the state machine
 sm = LightSwitch(power_on=false)
 Hsm.initialize!(sm)
 Hsm.dispatch!(sm, :Toggle)  # Transitions to On
+Hsm.dispatch!(sm, :UnknownEvent)  # Will be caught by the default handler
 ```
 
 ## Examples
@@ -71,6 +80,26 @@ The `example/` directory contains various examples demonstrating different appro
 - Initial transitions for hierarchical initialization
 - Event handling with arguments
 - Complex state hierarchies with nested states
+- Default event handlers with the `Any` keyword
+
+## Default Event Handlers
+
+The library supports default event handlers that can process any unhandled event in a specific state:
+
+```julia
+# Define a default event handler for State_A
+@on_event :State_A Any function(sm::MyStateMachine, arg)
+    println("Default handler for State_A received: $(Hsm.event(sm))")
+    return Hsm.EventHandled
+end
+```
+
+Default handlers are useful for:
+
+- Logging unhandled events
+- Implementing fallback behavior
+- Building diagnostic tools
+- Creating more flexible state machines
 
 ## License
 

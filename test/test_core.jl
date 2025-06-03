@@ -14,11 +14,12 @@ using Hsm
     mutable struct TestManualSm
         _current::Symbol
         _source::Symbol
+        _event::Symbol
         counter::Int
         # Add a state hierarchy map for the ancestor interface
         _ancestors::Dict{Symbol, Symbol}
         
-        function TestManualSm(current::Symbol, source::Symbol, counter::Int)
+        function TestManualSm(current::Symbol, source::Symbol, event::Symbol, counter::Int)
             # Initialize with a simple state hierarchy
             ancestors = Dict{Symbol, Symbol}(
                 :State_S => :Root,
@@ -27,7 +28,7 @@ using Hsm
                 :State_S11 => :State_S1,
                 :State_S21 => :State_S2
             )
-            new(current, source, counter, ancestors)
+            new(current, source, event, counter, ancestors)
         end
     end
     
@@ -36,16 +37,19 @@ using Hsm
     Hsm.current!(sm::TestManualSm, state::Symbol) = (sm._current = state)
     Hsm.source(sm::TestManualSm) = sm._source
     Hsm.source!(sm::TestManualSm, state::Symbol) = (sm._source = state)
+    Hsm.event(sm::TestManualSm) = sm._event
+    Hsm.event!(sm::TestManualSm, event::Symbol) = (sm._event = event)
     
     # Implement the ancestor interface
     Hsm.ancestor(sm::TestManualSm, state::Symbol) = get(sm._ancestors, state, :Root)
 
     # Create an instance
-    sm = TestManualSm(:Root, :Root, 0)
+    sm = TestManualSm(:Root, :Root, :None, 0)
     
-    # Test current/source getters and setters
+    # Test current/source/event getters and setters
     @test Hsm.current(sm) === :Root
     @test Hsm.source(sm) === :Root
+    @test Hsm.event(sm) === :None
     
     Hsm.current!(sm, :State_S1)
     Hsm.source!(sm, :State_S)
@@ -73,6 +77,15 @@ using Hsm
     # Basic tests for find_lca within the main testset
     @test Hsm.find_lca(sm, :State_S11, :State_S21) === :State_S  # LCA of two leaf states
     @test Hsm.find_lca(sm, :State_S1, :State_S2) === :State_S    # LCA of two direct children
+    
+    # Test event getter and setter
+    Hsm.event!(sm, :TestEvent)
+    @test Hsm.event(sm) === :TestEvent
+    
+    # Test that dispatch updates the event field
+    Hsm.on_event!(sm::TestManualSm, ::Val{:Root}, ::Val{:TestEvent2}, _) = Hsm.EventHandled
+    Hsm.dispatch!(sm, :TestEvent2)
+    @test Hsm.event(sm) === :TestEvent2
 end
 
 @testset "Lowest Common Ancestor (LCA)" begin

@@ -69,10 +69,28 @@ end
     return Hsm.transition!(sm, :State1)
 end
 
+# Default event handler for State - will handle any unhandled event
+# Function signature uses ValSplit to handle any event
+@on_event :State Any function(sm::TestHsm, data)
+    println("Default handler in State received event: $(Hsm.event(sm))")
+    println("With data: $data")
+    return Hsm.EventHandled
+end
+
 function main(ARGS)
 # Create and initialize a state machine
     sm = TestHsm(foo=0, message="Hello")
     @show sm
     println("State machine initialized. Current state: ", Hsm.current(sm))
+    
+    # Test the specific event handlers
+    Hsm.dispatch!(sm, :Start)
+    println("After Start event, current state: ", Hsm.current(sm))
+    Hsm.dispatch!(sm, :Stop)
+    println("After Stop event, current state: ", Hsm.current(sm))
+    
+    # Test the default event handler
+    Hsm.dispatch!(sm, :UnknownEvent, "Some data")
+    println("After UnknownEvent, current state: ", Hsm.current(sm))
 end
 

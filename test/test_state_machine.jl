@@ -241,4 +241,32 @@ using Hsm
         @test "Initial handler for State_S21" in sm.log
         @test "Entered State_S211" in sm.log
     end
+    
+    @testset "Initialization with event field" begin
+        # Create a state machine and verify initialization of event field
+        sm = ComplexTestSm(0, String[])
+        
+        # Set event to something other than :None to verify initialize! resets it
+        Hsm.event!(sm, :SomeEvent)
+        
+        # Initialize the state machine
+        Hsm.initialize!(sm)
+        
+        # Check that the event field is properly initialized
+        @test Hsm.event(sm) === :None
+    end
+    
+    @testset "Event tracking during dispatch" begin
+        # Create a state machine for testing event tracking
+        sm = ComplexTestSm(0, String[])
+        Hsm.initialize!(sm)
+        
+        # Verify that the event field is updated during dispatch
+        Hsm.dispatch!(sm, :Event_Reset)
+        @test Hsm.event(sm) === :Event_Reset
+        
+        # Test with another event
+        Hsm.dispatch!(sm, :Event_A)
+        @test Hsm.event(sm) === :Event_A
+    end
 end

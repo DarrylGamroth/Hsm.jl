@@ -15,6 +15,7 @@ using Hsm
         @test sm1.name == "test1"
         @test sm1._current === Hsm.Root
         @test sm1._source === Hsm.Root
+        @test sm1._event === :None
 
         # Test keyword constructor
         sm2 = TestSm(counter=42, name="test2")
@@ -22,6 +23,7 @@ using Hsm
         @test sm2.name == "test2"
         @test sm2._current === Hsm.Root
         @test sm2._source === Hsm.Root
+        @test sm2._event === :None
         
         # Test keyword constructor ordering doesn't matter
         sm2a = TestSm(name="test2a", counter=43)
@@ -47,6 +49,12 @@ using Hsm
         Hsm.source!(sm1, :State_S)
         @test sm1._source === :State_S
         @test Hsm.source(sm1) === :State_S
+        
+        # Test the event interface
+        @test Hsm.event(sm1) === :None
+        Hsm.event!(sm1, :TestEvent)
+        @test sm1._event === :TestEvent
+        @test Hsm.event(sm1) === :TestEvent
     end
 
     @testset "@ancestor macro" begin
@@ -151,4 +159,6 @@ using Hsm
         @test "Initial handler for State_A" in sm.log
         @test Hsm.current(sm) === :State_A1
     end
+    
+    # Note: Comprehensive default handler tests are in test_default_handlers.jl
 end

@@ -7,4 +7,5 @@ using Hsm
     include("test_macros.jl")
     include("test_state_machine.jl")
     include("test_error_handling.jl")
+    include("test_default_handlers.jl")
 end

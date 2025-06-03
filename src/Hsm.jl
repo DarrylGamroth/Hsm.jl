@@ -9,7 +9,7 @@ const EventType = Symbol
 include("macros.jl")
 
 export EventHandled, EventNotHandled, Root
-export current, current!, source, source!, ancestor
+export current, current!, source, source!, event, event!, ancestor
 export initialize!
 export on_initial!, on_entry!, on_exit!, on_event!
 export transition!, dispatch!
@@ -88,6 +88,40 @@ Hsm.source!(sm::HsmTest, state) = sm.source = state
 function source! end
 
 """
+    event(sm)
+
+Get current event of state machine `sm`. This is useful in default event handlers
+to determine which event triggered the handler.
+
+# Example
+```julia
+@on_event :StateA Any function(sm::MyStateMachine, arg)
+    println("Default handler called with event: ", Hsm.event(sm))
+    return Hsm.EventHandled
+end
+```
+
+# Implementation Example
+```julia
+Hsm.event(sm::HsmTest) = sm.event
+```
+"""
+function event end
+
+"""
+    event!(sm, event::EventType)
+
+Set current event of state machine `sm` to `event`. This is called automatically
+by the dispatch! function before processing an event.
+
+# Implementation Example
+```julia
+Hsm.event!(sm::HsmTest, event) = sm.event = event
+```
+"""
+function event! end
+
+"""
     initialize!(sm)
 
 Initialize state machine `sm`.
@@ -95,6 +129,7 @@ Initialize state machine `sm`.
 function initialize!(sm)
     current!(sm, Root)
     source!(sm, Root)
+    event!(sm, :None)
     on_initial!(sm, Root)
 end
 
@@ -338,6 +373,9 @@ Dispatch the event in state machine `sm`.
 """
 function dispatch!(sm, event::EventType, arg=nothing)
     s = current(sm)
+    
+    # Store the current event being dispatched
+    event!(sm, event)
 
     # Find the main source state by calling on_event! until the event is handled
     while true
