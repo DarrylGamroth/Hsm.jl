@@ -14,16 +14,16 @@ using ValSplit
         sm1 = TestSm(0, "test1")
         @test sm1.counter == 0
         @test sm1.name == "test1"
-        @test sm1._current === Hsm.Root
-        @test sm1._source === Hsm.Root
+        @test sm1._current === :Root
+        @test sm1._source === :Root
         @test sm1._event === :None
 
         # Test keyword constructor
         sm2 = TestSm(counter=42, name="test2")
         @test sm2.counter == 42
         @test sm2.name == "test2"
-        @test sm2._current === Hsm.Root
-        @test sm2._source === Hsm.Root
+        @test sm2._current === :Root
+        @test sm2._source === :Root
         @test sm2._event === :None
         
         # Test keyword constructor ordering doesn't matter
@@ -66,7 +66,7 @@ using ValSplit
         
         # Define ancestry
         @ancestor AncestorTestSm begin
-            :State_S => Hsm.Root
+            :State_S => :Root
             :State_S1 => :State_S
             :State_S11 => :State_S1
             :State_S2 => :State_S
@@ -78,7 +78,7 @@ using ValSplit
         sm = AncestorTestSm(0)
         
         # Test individual ancestry rules
-        @test Hsm.ancestor(sm, Val(:State_S)) === Hsm.Root
+        @test Hsm.ancestor(sm, Val(:State_S)) === :Root
         @test Hsm.ancestor(sm, Val(:State_S1)) === :State_S
         @test Hsm.ancestor(sm, Val(:State_S11)) === :State_S1
         @test Hsm.ancestor(sm, Val(:State_S2)) === :State_S
@@ -86,8 +86,8 @@ using ValSplit
         @test Hsm.ancestor(sm, Val(:State_S211)) === :State_S21
         
         # Test single definition syntax
-        @ancestor AncestorTestSm :TestState => Hsm.Root
-        @test Hsm.ancestor(sm, Val(:TestState)) === Hsm.Root
+        @ancestor AncestorTestSm :TestState => :Root
+        @test Hsm.ancestor(sm, Val(:TestState)) === :Root
     end
     
     @testset "@on_event, @on_entry, @on_exit, @on_initial macros" begin
@@ -98,32 +98,32 @@ using ValSplit
         
         # Define ancestry
         @ancestor HandlerTestSm begin
-            :State_A => Hsm.Root
-            :State_B => Hsm.Root
+            :State_A => :Root
+            :State_B => :Root
             :State_A1 => :State_A
         end
         
         # Define event handlers
-        @on_event :State_A :Event_X function(sm::HandlerTestSm)
+        @on_event function(sm::HandlerTestSm, ::State_A, ::Event_X)
             push!(sm.log, "Event_X handled in State_A")
             return Hsm.EventHandled
         end
         
-        @on_event :State_A :Event_Y function(sm::HandlerTestSm, data)
+        @on_event function(sm::HandlerTestSm, ::State_A, ::Event_Y, data)
             push!(sm.log, "Event_Y handled in State_A with data: $data")
             return Hsm.EventHandled
         end
         
-        @on_initial :State_A function(sm::HandlerTestSm)
+        @on_initial function(sm::HandlerTestSm, ::State_A)
             push!(sm.log, "Initial handler for State_A")
             return Hsm.transition!(sm, :State_A1)
         end
         
-        @on_entry :State_A function(sm::HandlerTestSm)
+        @on_entry function(sm::HandlerTestSm, ::State_A)
             push!(sm.log, "Entered State_A")
         end
         
-        @on_exit :State_A function(sm::HandlerTestSm)
+        @on_exit function(sm::HandlerTestSm, ::State_A)
             push!(sm.log, "Exited State_A")
         end
         

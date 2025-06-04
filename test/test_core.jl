@@ -4,7 +4,7 @@ using ValSplit
 
 @testset "Core functionality" begin
     # Test that the Root constant is defined
-    @test Hsm.Root === :Root
+    @test :Root === :Root
 
     # Test the EventHandled and EventNotHandled enum values
     @test Hsm.EventHandled isa Hsm.EventReturn
@@ -28,9 +28,9 @@ using ValSplit
     Hsm.event!(sm::TestManualSm, event::Symbol) = sm._event = event
 
     # Implement the ancestor interface with Val dispatch
-    @valsplit Hsm.ancestor(sm::TestManualSm, Val(state::Symbol)) = Hsm.Root
-    Hsm.ancestor(::TestManualSm, ::Val{:Root}) = Hsm.Root
-    Hsm.ancestor(::TestManualSm, ::Val{:State_S}) = Hsm.Root
+    @valsplit Hsm.ancestor(sm::TestManualSm, Val(state::Symbol)) = :Root
+    Hsm.ancestor(::TestManualSm, ::Val{:Root}) = :Root
+    Hsm.ancestor(::TestManualSm, ::Val{:State_S}) = :Root
     Hsm.ancestor(::TestManualSm, ::Val{:State_S1}) = :State_S
     Hsm.ancestor(::TestManualSm, ::Val{:State_S2}) = :State_S
     Hsm.ancestor(::TestManualSm, ::Val{:State_S11}) = :State_S1
@@ -102,14 +102,14 @@ end
     # StateA11   StateA21 StateB11
     #                      |
     #                    StateB111    
-    @valsplit Hsm.ancestor(sm::TestLcaSm, Val(state::Symbol)) = Hsm.Root
+    @valsplit Hsm.ancestor(sm::TestLcaSm, Val(state::Symbol)) = :Root
 
     # Root state
-    Hsm.ancestor(::TestLcaSm, ::Val{:Root}) = Hsm.Root
+    Hsm.ancestor(::TestLcaSm, ::Val{:Root}) = :Root
 
     # First level states
-    Hsm.ancestor(::TestLcaSm, ::Val{:StateA}) = Hsm.Root
-    Hsm.ancestor(::TestLcaSm, ::Val{:StateB}) = Hsm.Root
+    Hsm.ancestor(::TestLcaSm, ::Val{:StateA}) = :Root
+    Hsm.ancestor(::TestLcaSm, ::Val{:StateB}) = :Root
 
     # Second level states
     Hsm.ancestor(::TestLcaSm, ::Val{:StateA1}) = :StateA

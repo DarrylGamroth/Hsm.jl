@@ -10,7 +10,7 @@ using Hsm
     
     # Define state hierarchy
     @ancestor ComplexTestSm begin
-        :State_Top => Hsm.Root
+        :State_Top => :Root
         :State_S1 => :State_Top
         :State_S11 => :State_S1
         :State_S12 => :State_S1
@@ -19,128 +19,128 @@ using Hsm
         :State_S211 => :State_S21
     end
     
-    @on_initial Hsm.Root function(sm::ComplexTestSm)
-        push!(sm.log, "Initial handler for Hsm.Root")
+    @on_initial function(sm::ComplexTestSm, ::Root)
+        push!(sm.log, "Initial handler for :Root")
         return Hsm.transition!(sm, :State_Top)
     end
 
     # Define handlers for State_Top
-    @on_entry :State_Top function(sm::ComplexTestSm)
+    @on_entry function(sm::ComplexTestSm, ::State_Top)
         push!(sm.log, "Entered State_Top")
     end
     
-    @on_exit :State_Top function(sm::ComplexTestSm)
+    @on_exit function(sm::ComplexTestSm, ::State_Top)
         push!(sm.log, "Exited State_Top")
     end
     
-    @on_initial :State_Top function(sm::ComplexTestSm)
+    @on_initial function(sm::ComplexTestSm, ::State_Top)
         push!(sm.log, "Initial handler for State_Top")
         return Hsm.transition!(sm, :State_S1)
     end
     
-    @on_event :State_Top :Event_Reset function(sm::ComplexTestSm)
+    @on_event function(sm::ComplexTestSm, ::State_Top, ::Event_Reset)
         push!(sm.log, "Reset event in State_Top")
         sm.counter = 0
         return Hsm.EventHandled
     end
     
     # Define handlers for State_S1
-    @on_entry :State_S1 function(sm::ComplexTestSm)
+    @on_entry function(sm::ComplexTestSm, ::State_S1)
         push!(sm.log, "Entered State_S1")
     end
     
-    @on_exit :State_S1 function(sm::ComplexTestSm)
+    @on_exit function(sm::ComplexTestSm, ::State_S1)
         push!(sm.log, "Exited State_S1")
     end
     
-    @on_initial :State_S1 function(sm::ComplexTestSm)
+    @on_initial function(sm::ComplexTestSm, ::State_S1)
         push!(sm.log, "Initial handler for State_S1")
         return Hsm.transition!(sm, :State_S11)
     end
     
-    @on_event :State_S1 :Event_A function(sm::ComplexTestSm)
+    @on_event function(sm::ComplexTestSm, ::State_S1, ::Event_A)
         push!(sm.log, "Event A in State_S1")
         return Hsm.transition!(sm, :State_S12)
     end
     
-    @on_event :State_S1 :Event_B function(sm::ComplexTestSm)
+    @on_event function(sm::ComplexTestSm, ::State_S1, ::Event_B)
         push!(sm.log, "Event B in State_S1")
         return Hsm.EventNotHandled  # Let it propagate up
     end
     
     # Define handlers for State_S11
-    @on_entry :State_S11 function(sm::ComplexTestSm)
+    @on_entry function(sm::ComplexTestSm, ::State_S11)
         push!(sm.log, "Entered State_S11")
     end
     
-    @on_exit :State_S11 function(sm::ComplexTestSm)
+    @on_exit function(sm::ComplexTestSm, ::State_S11)
         push!(sm.log, "Exited State_S11")
     end
     
-    @on_event :State_S11 :Event_C function(sm::ComplexTestSm)
+    @on_event function(sm::ComplexTestSm, ::State_S11, ::Event_C)
         push!(sm.log, "Event C in State_S11")
         sm.counter += 1
         return Hsm.EventHandled
     end
     
-    @on_event :State_S11 :Event_D function(sm::ComplexTestSm)
+    @on_event function(sm::ComplexTestSm, ::State_S11, ::Event_D)
         push!(sm.log, "Event D in State_S11")
         return Hsm.transition!(sm, :State_S211)
     end
     
     # Define handlers for State_S12
-    @on_entry :State_S12 function(sm::ComplexTestSm)
+    @on_entry function(sm::ComplexTestSm, ::State_S12)
         push!(sm.log, "Entered State_S12")
     end
     
-    @on_exit :State_S12 function(sm::ComplexTestSm)
+    @on_exit function(sm::ComplexTestSm, ::State_S12)
         push!(sm.log, "Exited State_S12")
     end
     
     # Define handlers for State_S2
-    @on_entry :State_S2 function(sm::ComplexTestSm)
+    @on_entry function(sm::ComplexTestSm, ::State_S2)
         push!(sm.log, "Entered State_S2")
     end
     
-    @on_exit :State_S2 function(sm::ComplexTestSm)
+    @on_exit function(sm::ComplexTestSm, ::State_S2)
         push!(sm.log, "Exited State_S2")
     end
     
-    @on_initial :State_S2 function(sm::ComplexTestSm)
+    @on_initial function(sm::ComplexTestSm, ::State_S2)
         push!(sm.log, "Initial handler for State_S2")
         return Hsm.transition!(sm, :State_S21)
     end
     
-    @on_event :State_S2 :Event_B function(sm::ComplexTestSm)
+    @on_event function(sm::ComplexTestSm, ::State_S2, ::Event_B)
         push!(sm.log, "Event B in State_S2")
         sm.counter += 5
         return Hsm.EventHandled
     end
     
     # Define handlers for State_S21
-    @on_entry :State_S21 function(sm::ComplexTestSm)
+    @on_entry function(sm::ComplexTestSm, ::State_S21)
         push!(sm.log, "Entered State_S21")
     end
     
-    @on_initial :State_S21 function(sm::ComplexTestSm)
+    @on_initial function(sm::ComplexTestSm, ::State_S21)
         push!(sm.log, "Initial handler for State_S21")
         return Hsm.transition!(sm, :State_S211)
     end
     
-    @on_exit :State_S21 function(sm::ComplexTestSm)
+    @on_exit function(sm::ComplexTestSm, ::State_S21)
         push!(sm.log, "Exited State_S21")
     end
     
     # Define handlers for State_S211
-    @on_entry :State_S211 function(sm::ComplexTestSm)
+    @on_entry function(sm::ComplexTestSm, ::State_S211)
         push!(sm.log, "Entered State_S211")
     end
     
-    @on_exit :State_S211 function(sm::ComplexTestSm)
+    @on_exit function(sm::ComplexTestSm, ::State_S211)
         push!(sm.log, "Exited State_S211")
     end
     
-    @on_event :State_S211 :Event_E function(sm::ComplexTestSm)
+    @on_event function(sm::ComplexTestSm, ::State_S211, ::Event_E)
         push!(sm.log, "Event E in State_S211")
         return Hsm.transition!(sm, :State_S11)
     end

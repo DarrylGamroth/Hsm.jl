@@ -13,65 +13,65 @@ end
 
 # Define state hierarchy
 # should generate the following:
-# Hsm.ancestor(::TestHsm, ::Val{:State1}) = Hsm.Root
+# Hsm.ancestor(::TestHsm, ::Val{:State1}) = :Root
 # Hsm.ancestor(::TestHsm, ::Val{:State2}) = :State1
 @ancestor TestHsm begin
-    :State => Hsm.Root
+    :State => :Root
     :State1 => :State
     :State2 => :State1
 end
 
 # Function signature = Hsm.on_initial!(sm::TestHsm, ::Val{:State})
-@on_initial :State function(sm::TestHsm)
+@on_initial function(sm::TestHsm, ::State)
     println("Initializing State with foo = ", sm.foo)
     return Hsm.transition!(sm, :State1)
 end
 
 # Function signature = Hsm.on_entry!(sm::TestHsm, ::Val{:State})
-@on_entry :State function(sm::TestHsm)
+@on_entry function(sm::TestHsm, ::State)
     println("Entering State with foo = ", sm.foo)
 end
 
 # Function signature = Hsm.on_exit!(sm::TestHsm, ::Val{:State})
-@on_exit :State function(sm::TestHsm)
+@on_exit function(sm::TestHsm, ::State)
     println("Exiting State with foo = ", sm.foo)
 end
 
 # Function signature = Hsm.on_entry!(sm::TestHsm, ::Val{:State1}) 
-@on_entry :State1 function(sm::TestHsm)
+@on_entry function(sm::TestHsm, ::State1)
     sm.foo = 0
     println("Entering State1 with foo = ", sm.foo)
 end
 
 # Function signature = Hsm.on_exit!(sm::TestHsm, ::Val{:State1})
-@on_exit :State1 function(sm::TestHsm)
+@on_exit function(sm::TestHsm, ::State1)
     println("Exiting State1 with foo = ", sm.foo)
 end
 
 # Function signature = Hsm.on_event!(sm::TestHsm, ::Val{:State1}, ::Val{:Start}, arg)
-@macroexpand @on_event :State1 :Start function(sm::TestHsm, _)
+@macroexpand @on_event function(sm::TestHsm, ::State1, ::Start, _)
     sm.foo += 1
     return Hsm.transition!(sm, :State2)
 end
 
 # Function signature = Hsm.on_initial!(sm::TestHsm, ::Val{:State1})
-@on_entry :State2 function(sm::TestHsm)
+@on_entry function(sm::TestHsm, ::State2)
     println("Entering State2 with foo = ", sm.foo)
 end
 
 # Function signature = Hsm.on_exit!(sm::TestHsm, ::Val{:State2})
-@on_exit :State2 function(sm::TestHsm)
+@on_exit function(sm::TestHsm, ::State2)
     println("Exiting State2 with foo = ", sm.foo)
 end
 
 # Function signature = Hsm.on_event!(sm::TestHsm, ::Val{:State2}, ::Val{:Stop}, arg)
-@on_event :State2 :Stop function(sm::TestHsm, _)
+@on_event function(sm::TestHsm, ::State2, ::Stop, _)
     return Hsm.transition!(sm, :State1)
 end
 
 # Default event handler for State - will handle any unhandled event
 # Function signature uses ValSplit to handle any event
-@on_event :State Any function(sm::TestHsm, data)
+@on_event function(sm::TestHsm, ::State, ::Any, data)
     println("Default handler in State received event: $(Hsm.event(sm))")
     println("With data: $data")
     return Hsm.EventHandled

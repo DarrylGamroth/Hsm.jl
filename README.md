@@ -38,27 +38,27 @@ end
 
 # Define the state hierarchy (using block syntax for multiple states)
 @ancestor LightSwitch begin
-    :Off => Hsm.Root
-    :On => Hsm.Root
+    :Off => :Root
+    :On => :Root
 end
 
-@on_initial :Root function(sm::LightSwitch)
+@on_initial function(sm::LightSwitch, ::Root)
     return Hsm.transition!(sm, :Off)
 end
 
 # Define event handlers
-@on_event :Off :Toggle function(sm::LightSwitch, arg)
+@on_event function(sm::LightSwitch, ::Off, ::Toggle, arg)
     sm.power_on = true
     return Hsm.transition!(sm, :On)
 end
 
-@on_event :On :Toggle function(sm::LightSwitch, arg)
+@on_event function(sm::LightSwitch, ::On, ::Toggle, arg)
     sm.power_on = false
     return Hsm.transition!(sm, :Off)
 end
 
 # Define a default event handler for any unhandled event
-@on_event :Off Any function(sm::LightSwitch, arg)
+@on_event function(sm::LightSwitch, ::Off, ::Any, arg)
     println("Unhandled event in Off state: $(Hsm.event(sm))")
     return Hsm.EventNotHandled
 end
@@ -90,8 +90,8 @@ The library supports default event handlers that can process any unhandled event
 
 ```julia
 # Define a default event handler for State_A
-@on_event :State_A Any function(sm::MyStateMachine, arg)
-    println("Default handler for State_A received: $(Hsm.event(sm))")
+@on_event function(sm::MyStateMachine, state::State_A, event::Any, arg)
+    println("Default handler for $(state) received: $(event)")
     return Hsm.EventHandled
 end
 ```

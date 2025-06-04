@@ -2,13 +2,10 @@ module Hsm
 
 using ValSplit
 
-# State and event types
-const StateType = Symbol
-const EventType = Symbol
-
+# Include the original macros file
 include("macros.jl")
 
-export EventHandled, EventNotHandled, Root
+export EventHandled, EventNotHandled
 export current, current!, source, source!, event, event!, ancestor
 export on_initial!, on_entry!, on_exit!, on_event!
 export transition!, dispatch!
@@ -26,18 +23,6 @@ Enumeration of the possible return values from [`on_event!`](@ref) function.
 @enum EventReturn EventNotHandled EventHandled
 
 """
-    Root
-
-Root state of the state machine. Used by [`ancestor`](@ref) to specify the top most state.
-
-# Example
-```julia
-const Top = Hsm.Root
-```
-"""
-const Root = :Root
-
-"""
     current(sm)
 
 Get current state of state machine `sm`.
@@ -50,7 +35,7 @@ Hsm.current(sm::HsmTest) = sm.current
 function current end
 
 """
-    current!(sm, state::StateType)
+    current!(sm, state::Symbol)
 
 Set current state of state machine `sm` to `state`.
 
@@ -74,7 +59,7 @@ Hsm.source(sm::HsmTest) = sm.source
 function source end
 
 """
-    source!(sm, state::StateType)
+    source!(sm, state::Symbol)
 
 Set source state of state machine `sm` to `state`.
 
@@ -107,7 +92,7 @@ Hsm.event(sm::HsmTest) = sm.event
 function event end
 
 """
-    event!(sm, event::EventType)
+    event!(sm, event::Symbol)
 
 Set current event of state machine `sm` to `event`. This is called automatically
 by the dispatch! function before processing an event.
@@ -123,16 +108,16 @@ function event! end
     ancestor(sm, state::Val{STATE})
 
 Get ancestor (superstate) of `state` in state machine `sm`. Ensure the top most state
-ancestor is [`Root`](@ref).
+ancestor is [`:Root`](@ref).
 
 # Implementaiton Example
-To speficfy the ancestor for `sm`=HsmState State_S is [`Root`](@ref):
+To speficfy the ancestor for `sm`=HsmState State_S is [`:Root`](@ref):
 ```julia
-Hsm.ancestor(sm::HsmTest, ::Val{State_S}) = Root
+Hsm.ancestor(sm::HsmTest, ::Val{State_S}) = :Root
 ```
 
 Note: A default implementation is automatically added by the `@hsmdef` macro for each
-state machine type, which reports an error for undefined states and handles the Root state.
+state machine type, which reports an error for undefined states and handles the :Root state.
 """
 function ancestor end
 
@@ -238,7 +223,7 @@ the `@hsmdef` macro for each state machine type, which returns `EventNotHandled`
 """
 function on_event! end
 
-function do_entry!(sm, s::StateType, t::StateType)
+function do_entry!(sm, s::Symbol, t::Symbol)
     if s == t
         return
     end
@@ -247,7 +232,7 @@ function do_entry!(sm, s::StateType, t::StateType)
     return
 end
 
-function do_exit!(sm, s::StateType, t::StateType)
+function do_exit!(sm, s::Symbol, t::Symbol)
     while s != t
         on_exit!(sm, s)
         s = ancestor(sm, s)
@@ -256,8 +241,8 @@ function do_exit!(sm, s::StateType, t::StateType)
 end
 
 """
-    transition!(sm, t::StateType)
-    transition!(action::Function, sm, t::StateType)
+    transition!(sm, t::Symbol)
+    transition!(action::Function, sm, t::Symbol)
 
 Transition state machine `sm` to state `t`.
 The `action` function will be called, if specified, during the transition when the main source state has
@@ -271,11 +256,11 @@ transition!(sm, State_S2) do
 end
 ```
 """
-function transition!(sm, t::StateType)
+function transition!(sm, t::Symbol)
     transition!(Returns(nothing), sm, t)
 end
 
-function transition!(action::Function, sm, t::StateType)
+function transition!(action::Function, sm, t::Symbol)
     c = current(sm)
     s = source(sm)
     lca = find_lca(sm, s, t)
@@ -307,18 +292,18 @@ false == isancestorof(sm, State_S1, State_S2)
 ```
 """
 function isancestorof(sm, a, b)
-    # Root is an ancestor of everything (including itself)
-    if a == Root
+    # :Root is an ancestor of everything (including itself)
+    if a == :Root
         return true
     end
 
-    # A state is not its own ancestor (except Root)
+    # A state is not its own ancestor (except :Root)
     if a == b
         return false
     end
 
     # Traverse up the hierarchy from b
-    while b != Root
+    while b != :Root
         b = ancestor(sm, b)
         if a == b
             return true
@@ -329,22 +314,22 @@ function isancestorof(sm, a, b)
 end
 
 """
-    find_lca(sm, s::StateType, t::StateType)
+    find_lca(sm, s::Symbol, t::Symbol)
 
 Find the least common ancestor of states `s` and `t` in state machine `sm`.
 
-Returns the least common ancestor of `s` and `t` or [`Root`](@ref) if no common ancestor is found.
+Returns the least common ancestor of `s` and `t` or [`:Root`](@ref) if no common ancestor is found.
 """
 
-@inline function find_lca(sm, s::StateType, t::StateType)
+@inline function find_lca(sm, s::Symbol, t::Symbol)
     # Handle case where main source is equal to target
     if s == t
         return ancestor(sm, s)
     end
 
-    while s != Root
+    while s != :Root
         t1 = t
-        while t1 != Root
+        while t1 != :Root
             if t1 == s
                 return t1
             end
@@ -352,15 +337,15 @@ Returns the least common ancestor of `s` and `t` or [`Root`](@ref) if no common 
         end
         s = ancestor(sm, s)
     end
-    return Root
+    return :Root
 end
 
 """
-    dispatch!(sm, event::EventType, arg=nothing)
+    dispatch!(sm, event::Symbol, arg=nothing)
 
 Dispatch the event in state machine `sm`.
 """
-function dispatch!(sm, event::EventType, arg=nothing)
+function dispatch!(sm, event::Symbol, arg=nothing)
     s = current(sm)
     
     # Store the current event being dispatched
@@ -372,7 +357,7 @@ function dispatch!(sm, event::EventType, arg=nothing)
         if on_event!(sm, s, event, arg) == EventHandled
             return EventHandled
         end
-        s != Root || break
+        s != :Root || break
         s = ancestor(sm, s)
     end
 

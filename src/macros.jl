@@ -1,34 +1,5 @@
-"""
-    extract_sm_arg(argtuple, macro_name)
-
-Internal helper function to extract state machine argument from macro function definitions.
-- `argtuple`: The tuple of arguments from the function definition
-- `macro_name`: Name of the macro for error reporting (including source location)
-
-Returns a tuple of (smarg, smtype) where smarg is the argument name and smtype is its type.
-"""
-function extract_sm_arg(argtuple, macro_name)
-    if !(argtuple isa Expr && argtuple.head == :tuple)
-        error("$macro_name: Function definition must be of the form function(sm::Type, ...) ... end")
-    end
-
-    if isempty(argtuple.args)
-        error("$macro_name: Function definition requires at least one argument")
-    end
-
-    smarg_expr = argtuple.args[1]
-    if smarg_expr isa Symbol
-        smarg = smarg_expr
-        smtype = :Any
-    elseif smarg_expr isa Expr && smarg_expr.head == :(::)
-        smarg = smarg_expr.args[1]
-        smtype = smarg_expr.args[2]
-    else
-        error("$macro_name: Unexpected argument form for state machine parameter")
-    end
-
-    return smarg, smtype
-end
+# This file originally contained helper functions for extracting arguments from macro function definitions.
+# The implementation has been simplified by directly processing arguments within each macro.
 
 """
     @ancestor smtype child => parent
@@ -54,7 +25,7 @@ end
 
 # Complete state hierarchy example
 @ancestor MyStateMachine begin
-    :State_S => :State_Root
+    :State_S => :Root
     :State_S1 => :State_S
     :State_S2 => :State_S
     :State_S11 => :State_S1
@@ -106,28 +77,20 @@ macro ancestor(args...)
 end
 
 """
-    @on_event state event function(sm::MyStateMachine, arg)
+    @on_event function(sm::MyStateMachine, ::StateA, ::EventX, data)
         # handler code
+        return Hsm.EventHandled
     end
 
-    # Or with keyword arguments:
-    @on_event state = :StateA event = :EventX function(sm::MyStateMachine, arg)
-        # Access state and event values in the body
-        println("Handling \$(event) in \$(state)")
+    @on_event function(sm::MyStateMachine, state::StateA, event::EventX, data)
+        # handler code with named state and event parameters
         return Hsm.EventHandled
     end
 
 Define an event handler for a specific state and event.
 
 # Arguments
-- `state`: The state symbol for which this handler is defined
-- `event`: The event symbol this handler responds to, or `Any` to create a catch-all handler
-- `function`: A function definition with the state machine as first argument
-
-# Keyword Arguments Style
-When using the keyword argument style, the specified variables will be available in the function body:
-- `state = :StateA`: Makes `state` variable available in the function body with value `:StateA`
-- `event = :EventX`: Makes `event` variable available in the function body with value `:EventX`
+- `function`: A function definition with the state machine as first argument, followed by state and event types
 
 # Returns
 The handler should return `Hsm.EventHandled` if the event was handled, or
@@ -135,198 +98,174 @@ The handler should return `Hsm.EventHandled` if the event was handled, or
 
 # Examples
 ```julia
-# Handle EventX in StateA, with an explicit argument name
-@on_event :StateA :EventX function(sm::MyStateMachine, data)
+# Handle EventX in StateA with a data parameter
+@on_event function(sm::MyStateMachine, ::StateA, ::EventX, data)
     # Use data parameter
     println("Received data: ", data)
     return Hsm.EventHandled
 end
 
-# Using keyword arguments to reference state and event in the body
-@on_event state = :StateA event = :EventX function(sm::MyStateMachine, data)
-    # Variables 'state' and 'event' are available here
-    println("Handling \$(event) in \$(state) with data: ", data)
+# Using named parameters for state and event
+@on_event function(sm::MyStateMachine, state::StateA, event::EventX, data)
+    # Variables 'state' and 'event' are available as parameters
+    println("Handling event in state")
     return Hsm.EventHandled
 end
 
-# Catch-all handler for any event in StateB
-@on_event :StateB Any function(sm::MyStateMachine, arg)
-    println("Handling unspecified event in StateB: ", Hsm.event(sm))
-    return Hsm.EventNotHandled
-end
-
-# With default argument name and state transition
-@on_event :StateA :EventY function(sm::MyStateMachine)
+# Without data parameter
+@on_event function(sm::MyStateMachine, ::StateA, ::EventY)
     return Hsm.transition!(sm, :StateB) do
         sm.counter += 1
     end
 end
 ```
 """
-macro on_event(args...)
+macro on_event(def)
+    def.head == :function || error("@on_event must wrap a function definition")
+
+    fn_sig = def.args[1]
+    body = def.args[2]
+    args = fn_sig.args
+
     # Add source location for better error messages
     line = __source__.line
     file = String(__source__.file)
     error_prefix = "@on_event (line $line in $file)"
 
-    # Check if using keyword arguments style or positional style
-    if length(args) == 3 && !(args[1] isa Expr && args[1].head == :(=))
-        # Traditional style: state, event, def
-        state, event, def = args
-        using_kwargs = false
-    elseif all(arg isa Expr && arg.head == :(=) for arg in args[1:end-1])
-        # Keyword arguments style
-        using_kwargs = true
-        def = args[end]
-
-        # Extract keyword arguments
-        kwargs = Dict{Symbol,Any}()
-        for arg in args[1:end-1]
-            if arg.head == :(=)
-                kwargs[arg.args[1]] = arg.args[2]
-            end
-        end
-
-        # Ensure required kwargs are provided
-        if !haskey(kwargs, :state)
-            error("$error_prefix: Missing required keyword argument 'state'")
-        end
-        if !haskey(kwargs, :event)
-            error("$error_prefix: Missing required keyword argument 'event'")
-        end
-
-        state = kwargs[:state]
-        event = kwargs[:event]
-    else
-        error("$error_prefix: Invalid syntax. Use either positional arguments (@on_event state event function...) or keyword arguments (@on_event state=:State event=:Event function...)")
+    if length(args) < 3
+        error("$error_prefix: Function definition requires at least three arguments: state machine, state, and event")
     end
 
-    # Extract function body and arguments
-    body = def.args[2]
-    func_args = def.args[1]
+    sm_arg = args[1]
+    state_arg = args[2]
+    event_arg = args[3]
+    data_arg = length(args) > 3 ? args[4] : gensym("unused")
 
-    if !(func_args isa Expr && func_args.head == :tuple)
-        error("$error_prefix: Function definition must be of the form function(sm::Type, ...) ... end")
-    end
-
-    if isempty(func_args.args)
-        error("$error_prefix: Function definition requires at least one argument")
-    end
-
-    # Extract state machine parameter
-    smarg_expr = func_args.args[1]
-    if smarg_expr isa Symbol
-        smarg = smarg_expr
+    # Extract the state machine type and name
+    if sm_arg isa Symbol
+        smarg = sm_arg
         smtype = :Any
-    elseif smarg_expr isa Expr && smarg_expr.head == :(::)
-        smarg = smarg_expr.args[1]
-        smtype = smarg_expr.args[2]
+    elseif sm_arg isa Expr && sm_arg.head == :(::)
+        smarg = sm_arg.args[1]
+        smtype = sm_arg.args[2]
     else
         error("$error_prefix: Unexpected argument form for state machine parameter")
     end
 
-    # Handle the optional argument for the event data
-    argname = length(func_args.args) > 1 ? func_args.args[2] : :__unused
+    new_args = Expr[]
+    injected = Expr[]
 
-    # Special case for default event handler (catch-all) using `Any`
-    if event == :Any
-        # Extract event argument name and type (if present)
-        if length(func_args.args) > 1
-            evarg_expr = func_args.args[2]
-            if evarg_expr isa Symbol
-                evarg, evtype = evarg_expr, :Any
-            elseif evarg_expr isa Expr && evarg_expr.head == :(::)
-                evarg, evtype = evarg_expr.args[1], evarg_expr.args[2]
-            else
-                error("$error_prefix: Unexpected argument form for event argument")
-            end
+    # Process state argument
+    if state_arg isa Expr && state_arg.head == :(::)
+        # Extract state type and decide if it needs a name
+        state_type = if length(state_arg.args) == 1
+            state_arg.args[1]
         else
-            # Use '_unused' instead of '_' which is write-only and can't be used as a parameter
-            evarg, evtype = :__unused, :Any
+            state_arg.args[2]
         end
 
-        # Generate code based on kwargs usage
-        if using_kwargs
-            # With kwargs - add local state and event variables
-            # Create a modified body that includes state and event bindings
-            modified_body = quote
-                local state = $(state)
-                local event = __event
-                $(body)
-            end
+        # Determine if we have a named or anonymous parameter
+        has_name = length(state_arg.args) > 1 && state_arg.args[1] isa Symbol
 
-            return quote
-                ValSplit.@valsplit function Hsm.on_event!(
-                    $(esc(smarg))::$(esc(smtype)),
-                    $(esc(:__state))::$(esc(:Val)){$state},
-                    Val($(esc(:__event))::$(esc(:Symbol))),
-                    $(esc(evarg))::$(esc(evtype))
-                )
-                    $(esc(modified_body))
-                end
+        # Create a name if it's anonymous - this simplifies the logic
+        state_name = has_name ? state_arg.args[1] : gensym("state")
 
-                function Hsm.on_event!(
-                    $(esc(smarg))::$(esc(smtype)),
-                    ::$(esc(:Val)){$state},
-                    ::$(esc(:Val)){:__dummy},
-                    $(esc(evarg))::$(esc(evtype))
-                )
-                    return Hsm.EventNotHandled
-                end
-            end
+        state_sym = QuoteNode(Symbol(state_type))
+        push!(new_args, Expr(:(::), state_name, Expr(:curly, :Val, state_sym)))
+
+        # Always inject the state name assignment for consistency
+        push!(injected, :($state_name = $state_sym))
+    end
+
+    # Process event argument
+    if event_arg isa Expr && event_arg.head == :(::)
+        # Extract event type and decide if it needs a name
+        event_type = if length(event_arg.args) == 1
+            event_arg.args[1]
         else
-            # Traditional style without kwargs
-            return quote
+            event_arg.args[2]
+        end
+
+        # Determine if we have a named or anonymous parameter
+        has_name = length(event_arg.args) > 1 && event_arg.args[1] isa Symbol
+
+        # Create a name if it's anonymous - this simplifies the logic
+        event_name = has_name ? event_arg.args[1] : gensym("event")
+
+        # Special case for Any event type - use ValSplit
+        if event_type == :Any
+            if !has_name
+                error("$error_prefix: When using ::Any for event type, you must provide a named parameter (e.g., event::Any) to access the event value")
+            end
+            is_any_event = true
+            push!(new_args, Expr(:(::), event_name, :Val))
+        else
+            is_any_event = false
+            event_sym = QuoteNode(Symbol(event_type))
+            push!(new_args, Expr(:(::), event_name, Expr(:curly, :Val, event_sym)))
+
+            # Always inject the event name assignment for consistency
+            push!(injected, :($event_name = $event_sym))
+        end
+    else
+        error("$error_prefix: Event argument must be of the form ::EventType or event::EventType")
+    end
+
+    # Push state machine arg to front and data arg at the end
+    pushfirst!(new_args, Expr(:(::), smarg, smtype))
+
+    # Process data argument
+    if data_arg isa Symbol && startswith(String(data_arg), "#unused")
+        # Case: not present - create an unused parameter expression with gensym
+        push!(new_args, Expr(:(::), data_arg, :Any))
+    elseif data_arg isa Expr && data_arg.head == :(::)
+        # Case: name::Type
+        push!(new_args, data_arg)
+    else
+        # Case: just name - should be a symbol without type annotation
+        # We still need to create a proper argument expression with Any type
+        push!(new_args, Expr(:(::), data_arg, :Any))
+    end
+
+    # Construct the full function body with any injected parameter transformations
+    full_body = isempty(injected) ? body : Expr(:block, injected..., body)
+
+    # Generate the final function using a quote block with @eval for proper hygiene
+    # This ensures correct handling of variables from the caller's context
+    if @isdefined(is_any_event) && is_any_event
+        # Special case for Any event - use ValSplit macro
+        return quote
+            @eval begin
                 ValSplit.@valsplit function Hsm.on_event!(
-                    $(esc(smarg))::$(esc(smtype)),
-                    $(esc(:__state))::$(esc(:Val)){$state},
-                    Val($(esc(:__event))::$(esc(:Symbol))),
-                    $(esc(evarg))::$(esc(evtype))
+                    $smarg::$smtype,
+                    $(new_args[2]),
+                    Val($(event_name)::Symbol),
+                    $(new_args[4])
                 )
-                    $(esc(body))
+                    $full_body
                 end
 
                 function Hsm.on_event!(
-                    $(esc(smarg))::$(esc(smtype)),
-                    ::$(esc(:Val)){$state},
-                    ::$(esc(:Val)){:__dummy},
-                    $(esc(evarg))::$(esc(evtype))
+                    $smarg::$smtype,
+                    $(new_args[2]),
+                    ::Val{$(QuoteNode(gensym("Any")))},
+                    $(new_args[4])
                 )
                     return Hsm.EventNotHandled
-                end
+                end                
             end
         end
     else
-        # Regular event handler for specific event
-        if using_kwargs
-            # With kwargs - add local state and event variables
-            # Create a modified body that includes state and event bindings
-            modified_body = quote
-                local state = $(state)
-                local event = $(event)
-                $(body)
-            end
-
-            return quote
+        # Normal case - specific event type
+        return quote
+            @eval begin
                 function Hsm.on_event!(
-                    $(esc(smarg))::$(esc(smtype)),
-                    ::$(esc(:Val)){$state},
-                    ::$(esc(:Val)){$event},
-                    $(esc(argname))
+                    $smarg::$smtype,
+                    $(new_args[2]),
+                    $(new_args[3]),
+                    $(new_args[4])
                 )
-                    $(esc(modified_body))
-                end
-            end
-        else
-            # Traditional style without kwargs
-            return quote
-                function Hsm.on_event!(
-                    $(esc(smarg))::$(esc(smtype)),
-                    ::$(esc(:Val)){$state},
-                    ::$(esc(:Val)){$event},
-                    $(esc(argname))
-                )
-                    $(esc(body))
+                    $full_body
                 end
             end
         end
@@ -334,16 +273,16 @@ macro on_event(args...)
 end
 
 """
-    @on_initial state function(sm::MyStateMachine)
+    @on_initial function(sm::MyStateMachine, ::StateS)
         # initialization code
+        return Hsm.transition!(sm, :State_S1)
     end
 
 Define an initial handler for a specific state. Initial handlers are called when a state becomes active
 and typically transition to a child state or perform initialization logic.
 
 # Arguments
-- `state`: The state symbol for which this handler is defined
-- `function`: A function definition with the state machine as the argument
+- `function`: A function definition with the state machine as first argument, followed by state type
 
 # Returns
 The handler should either return `Hsm.EventHandled` or perform a transition to a child state.
@@ -351,12 +290,12 @@ The handler should either return `Hsm.EventHandled` or perform a transition to a
 # Examples
 ```julia
 # Simple initial handler transitioning to a child state
-@on_initial :State_S function(sm::MyStateMachine)
+@on_initial function(sm::MyStateMachine, ::StateS)
     return Hsm.transition!(sm, :State_S1)
 end
 
-# Initial handler with setup logic
-@on_initial :State_Root function(sm::MyStateMachine)
+# With named state parameter
+@on_initial function(sm::MyStateMachine, state::Root)
     # Initialize state machine
     sm.counter = 0
     sm.status = "ready"
@@ -368,101 +307,270 @@ end
 end
 ```
 """
-macro on_initial(state, def)
+macro on_initial(def)
+    def.head == :function || error("@on_initial must wrap a function definition")
+
+    fn_sig = def.args[1]
+    body = def.args[2]
+    args = fn_sig.args
+
     # Add source location for better error messages
     line = __source__.line
     file = String(__source__.file)
+    error_prefix = "@on_initial (line $line in $file)"
 
-    body = def.args[2]
-    smarg, smtype = extract_sm_arg(def.args[1], "@on_initial (line $line in $file)")
+    if length(args) < 2
+        error("$error_prefix: Function definition requires at least two arguments: state machine and state")
+    end
 
+    sm_arg = args[1]
+    state_arg = args[2]
+
+    # Extract the state machine type and name
+    if sm_arg isa Symbol
+        smarg = sm_arg
+        smtype = :Any
+    elseif sm_arg isa Expr && sm_arg.head == :(::)
+        smarg = sm_arg.args[1]
+        smtype = sm_arg.args[2]
+    else
+        error("$error_prefix: Unexpected argument form for state machine parameter")
+    end
+
+    new_args = Expr[]
+    injected = Expr[]
+
+    # Process state argument
+    if state_arg isa Expr && state_arg.head == :(::)
+        if length(state_arg.args) == 1 || !(state_arg.args[1] isa Symbol)
+            # Anonymous: ::StateA → ::Val{:StateA}
+            state_type = length(state_arg.args) == 1 ? state_arg.args[1] : state_arg.args[2]
+            state_sym = QuoteNode(Symbol(state_type))
+            push!(new_args, Expr(:(::), Expr(:curly, :Val, state_sym)))
+        else
+            # Named: state::StateA → state::Val{:StateA}
+            state_name = state_arg.args[1]
+            state_type = state_arg.args[2]
+            state_sym = QuoteNode(Symbol(state_type))
+            push!(new_args, Expr(:(::), state_name, Expr(:curly, :Val, state_sym)))
+            push!(injected, :($state_name = $state_sym))
+        end
+    else
+        error("$error_prefix: State argument must be of the form ::StateType or state::StateType")
+    end
+
+    # Push state machine arg to front
+    pushfirst!(new_args, Expr(:(::), smarg, smtype))
+
+    # Construct the full function body with any injected parameter transformations
+    full_body = isempty(injected) ? body : Expr(:block, injected..., body)
+
+    # Generate the final function using a quote block with @eval for proper hygiene
+    # This ensures correct handling of variables from the caller's context
     return quote
-        function Hsm.on_initial!($smarg::$(esc(smtype)), ::$(esc(:Val)){$state})
-            $body
+        @eval begin
+            function Hsm.on_initial!(
+                $smarg::$smtype,
+                $(new_args[2])
+            )
+                $full_body
+            end
         end
     end
 end
 
 """
-    @on_entry state function(sm::MyStateMachine)
+    @on_entry function(sm::MyStateMachine, ::StateRunning)
         # entry code
     end
 
 Define an entry handler for a specific state. Entry handlers are executed when transitioning into a state.
 
 # Arguments
-- `state`: The state symbol for which this handler is defined
-- `function`: A function definition with the state machine as the argument
+- `function`: A function definition with the state machine as first argument, followed by state type
 
 # Examples
 ```julia
 # Simple entry handler
-@on_entry :State_Running function(sm::MyStateMachine)
+@on_entry function(sm::MyStateMachine, ::StateRunning)
     println("Entering Running state")
     sm.status = "running"
 end
 
-# Entry handler with logging
-@on_entry :State_Error function(sm::MyStateMachine)
+# With named state parameter
+@on_entry function(sm::MyStateMachine, state::StateError)
     @debug "Entering Error state"
     sm.error_count += 1
     sm.last_error_time = now()
 end
 ```
 """
-macro on_entry(state, def)
+macro on_entry(def)
+    def.head == :function || error("@on_entry must wrap a function definition")
+
+    fn_sig = def.args[1]
+    body = def.args[2]
+    args = fn_sig.args
+
     # Add source location for better error messages
     line = __source__.line
     file = String(__source__.file)
+    error_prefix = "@on_entry (line $line in $file)"
 
-    body = def.args[2]
-    smarg, smtype = extract_sm_arg(def.args[1], "@on_entry (line $line in $file)")
+    if length(args) < 2
+        error("$error_prefix: Function definition requires at least two arguments: state machine and state")
+    end
 
+    sm_arg = args[1]
+    state_arg = args[2]
+
+    # Extract the state machine type and name
+    if sm_arg isa Symbol
+        smarg = sm_arg
+        smtype = :Any
+    elseif sm_arg isa Expr && sm_arg.head == :(::)
+        smarg = sm_arg.args[1]
+        smtype = sm_arg.args[2]
+    else
+        error("$error_prefix: Unexpected argument form for state machine parameter")
+    end
+
+    new_args = Expr[]
+    injected = Expr[]
+
+    # Process state argument
+    if state_arg isa Expr && state_arg.head == :(::)
+        if length(state_arg.args) == 1 || !(state_arg.args[1] isa Symbol)
+            # Anonymous: ::StateA → ::Val{:StateA}
+            state_type = length(state_arg.args) == 1 ? state_arg.args[1] : state_arg.args[2]
+            state_sym = QuoteNode(Symbol(state_type))
+            push!(new_args, Expr(:(::), Expr(:curly, :Val, state_sym)))
+        else
+            # Named: state::StateA → state::Val{:StateA}
+            state_name = state_arg.args[1]
+            state_type = state_arg.args[2]
+            state_sym = QuoteNode(Symbol(state_type))
+            push!(new_args, Expr(:(::), state_name, Expr(:curly, :Val, state_sym)))
+            push!(injected, :($state_name = $state_sym))
+        end
+    else
+        error("$error_prefix: State argument must be of the form ::StateType or state::StateType")
+    end
+
+    # Push state machine arg to front
+    pushfirst!(new_args, Expr(:(::), smarg, smtype))
+
+    # Construct the full function body with any injected parameter transformations
+    full_body = isempty(injected) ? body : Expr(:block, injected..., body)
+
+    # Generate the final function using a quote block with @eval for proper hygiene
+    # This ensures correct handling of variables from the caller's context
     return quote
-        function Hsm.on_entry!($smarg::$(esc(smtype)), ::$(esc(:Val)){$state})
-            $body
+        @eval begin
+            function Hsm.on_entry!(
+                $smarg::$smtype,
+                $(new_args[2])
+            )
+                $full_body
+            end
         end
     end
 end
 
 """
-    @on_exit state function(sm::MyStateMachine)
+    @on_exit function(sm::MyStateMachine, ::StateRunning)
         # exit code
     end
 
 Define an exit handler for a specific state. Exit handlers are executed when transitioning out of a state.
 
 # Arguments
-- `state`: The state symbol for which this handler is defined
-- `function`: A function definition with the state machine as the argument
+- `function`: A function definition with the state machine as first argument, followed by state type
 
 # Examples
 ```julia
 # Simple exit handler
-@on_exit :State_Running function(sm::MyStateMachine)
+@on_exit function(sm::MyStateMachine, ::StateRunning)
     println("Exiting Running state")
     sm.running_time += now() - sm.start_time
 end
 
-# Exit handler with resource cleanup
-@on_exit :State_Connected function(sm::MyStateMachine)
+# With named state parameter
+@on_exit function(sm::MyStateMachine, state::StateConnected)
     @debug "Cleaning up connection resources"
     close(sm.connection)
     sm.connection = nothing
 end
 ```
 """
-macro on_exit(state, def)
+macro on_exit(def)
+    def.head == :function || error("@on_exit must wrap a function definition")
+
+    fn_sig = def.args[1]
+    body = def.args[2]
+    args = fn_sig.args
+
     # Add source location for better error messages
     line = __source__.line
     file = String(__source__.file)
+    error_prefix = "@on_exit (line $line in $file)"
 
-    body = def.args[2]
-    smarg, smtype = extract_sm_arg(def.args[1], "@on_exit (line $line in $file)")
+    if length(args) < 2
+        error("$error_prefix: Function definition requires at least two arguments: state machine and state")
+    end
 
+    sm_arg = args[1]
+    state_arg = args[2]
+
+    # Extract the state machine type and name
+    if sm_arg isa Symbol
+        smarg = sm_arg
+        smtype = :Any
+    elseif sm_arg isa Expr && sm_arg.head == :(::)
+        smarg = sm_arg.args[1]
+        smtype = sm_arg.args[2]
+    else
+        error("$error_prefix: Unexpected argument form for state machine parameter")
+    end
+
+    new_args = Expr[]
+    injected = Expr[]
+
+    # Process state argument
+    if state_arg isa Expr && state_arg.head == :(::)
+        if length(state_arg.args) == 1 || !(state_arg.args[1] isa Symbol)
+            # Anonymous: ::StateA → ::Val{:StateA}
+            state_type = length(state_arg.args) == 1 ? state_arg.args[1] : state_arg.args[2]
+            state_sym = QuoteNode(Symbol(state_type))
+            push!(new_args, Expr(:(::), Expr(:curly, :Val, state_sym)))
+        else
+            # Named: state::StateA → state::Val{:StateA}
+            state_name = state_arg.args[1]
+            state_type = state_arg.args[2]
+            state_sym = QuoteNode(Symbol(state_type))
+            push!(new_args, Expr(:(::), state_name, Expr(:curly, :Val, state_sym)))
+            push!(injected, :($state_name = $state_sym))
+        end
+    else
+        error("$error_prefix: State argument must be of the form ::StateType or state::StateType")
+    end
+
+    # Push state machine arg to front
+    pushfirst!(new_args, Expr(:(::), smarg, smtype))
+
+    # Construct the full function body with any injected parameter transformations
+    full_body = isempty(injected) ? body : Expr(:block, injected..., body)
+
+    # Generate the final function using a quote block with @eval for proper hygiene
+    # This ensures correct handling of variables from the caller's context
     return quote
-        function Hsm.on_exit!($smarg::$(esc(smtype)), ::$(esc(:Val)){$state})
-            $body
+        @eval begin
+            function Hsm.on_exit!(
+                $smarg::$smtype,
+                $(new_args[2])
+            )
+                $full_body
+            end
         end
     end
 end
@@ -479,7 +587,7 @@ hierarchical state machine. It adds `_current`, `_source`, and `_event` fields a
 required methods for `Hsm.current`, `Hsm.current!`, `Hsm.source`, `Hsm.source!`, `Hsm.event`, and `Hsm.event!`.
 
 # Features
-- Adds `_current`, `_source`, and `_event` fields automatically (initialized to `Hsm.Root` and `:None` for event)
+- Adds `_current`, `_source`, and `_event` fields automatically (initialized to `:Root` and `:None` for event)
 - Implements the required Hsm interface methods
 - Provides convenient constructors for positional and keyword arguments
 
@@ -563,7 +671,7 @@ macro hsmdef(struct_expr)
             sm = new(args..., current, source, event)
 
             # Call on_initial! to properly initialize the state machine
-            Hsm.on_initial!(sm, Hsm.Root)
+            Hsm.on_initial!(sm, :Root)
 
             return sm
         end
@@ -579,17 +687,11 @@ macro hsmdef(struct_expr)
         $(esc(new_struct_def))
 
         function $(esc(struct_name))(args::Vararg{Any,$num_user_fields})
-            return $(esc(struct_name))(Root, Root, :None, args...)
+            return $(esc(struct_name))(:Root, :Root, :None, args...)
         end
 
         # Add keyword constructor for named parameters
         function $(esc(struct_name))(; kwargs...)
-            # Handle the case where there are no user fields
-            # if $num_user_fields == 0
-            #     # Create the instance which will call the internal constructor
-            #     return $(esc(struct_name))(Root, Root, :None)
-            # end
-
             # Extract field names (excluding reserved fields)
             field_symbols = $(Expr(:vect, [x isa Symbol ? QuoteNode(x) : QuoteNode(x.args[1]) for x in fields[1:num_user_fields]]...))
 
@@ -604,16 +706,8 @@ macro hsmdef(struct_expr)
             end
 
             # Create the instance which will call the internal constructor
-            return $(esc(struct_name))(Root, Root, :None, args...)
+            return $(esc(struct_name))(:Root, :Root, :None, args...)
         end
-
-        # Implement the Hsm interface methods
-        Hsm.current(sm::$(esc(struct_name))) = sm._current
-        Hsm.current!(sm::$(esc(struct_name)), state::Symbol) = (sm._current = state)
-        Hsm.source(sm::$(esc(struct_name))) = sm._source
-        Hsm.source!(sm::$(esc(struct_name)), state::Symbol) = (sm._source = state)
-        Hsm.event(sm::$(esc(struct_name))) = sm._event
-        Hsm.event!(sm::$(esc(struct_name)), event::Symbol) = (sm._event = event)
 
         # Add default state machine handlers with type-specific dispatch
         # This ensures each state machine has its own default handlers
@@ -621,6 +715,15 @@ macro hsmdef(struct_expr)
 
         # Use @eval to properly create the handlers with the correct scope
         @eval begin
+            # Implement the Hsm interface methods
+
+            Hsm.current(sm::$(struct_name)) = sm._current
+            Hsm.current!(sm::$(struct_name), state::Symbol) = sm._current = state
+            Hsm.source(sm::$(struct_name)) = sm._source
+            Hsm.source!(sm::$(struct_name), state::Symbol) = sm._source = state
+            Hsm.event(sm::$(struct_name)) = sm._event
+            Hsm.event!(sm::$(struct_name), event::Symbol) = sm._event = event
+
             # Default initial handler (returns EventHandled)
             ValSplit.@valsplit Hsm.on_initial!(sm::$(struct_name), Val(state::Symbol)) = Hsm.EventHandled
 
@@ -644,11 +747,11 @@ macro hsmdef(struct_expr)
                 Val(state::Symbol)
             )
                 error("No ancestor for state \$state in $($(struct_name))")
-                return Hsm.Root
+                return :Root
             end
 
             # Special case: Root state's ancestor is Root itself
-            Hsm.ancestor(sm::$(struct_name), ::Val{Hsm.Root}) = Hsm.Root
+            Hsm.ancestor(sm::$(struct_name), ::Val{:Root}) = :Root
         end
     end
 

@@ -10,34 +10,34 @@ using Hsm
 
     # Define state hierarchy
     @ancestor DefaultHandlerTestSm begin
-        :StateA => Hsm.Root
+        :StateA => :Root
         :StateB => :StateA
         :StateC => :StateA
     end
 
     # Initialize to StateB
-    @on_initial :Root function(sm::DefaultHandlerTestSm)
+    @on_initial function(sm::DefaultHandlerTestSm, ::Root)
         return Hsm.transition!(sm, :StateB) do
             push!(sm.log, "Initial transition to StateB")
         end
     end
 
     # Default handler for StateB - should handle any event
-    @on_event :StateB Any function(sm::DefaultHandlerTestSm, arg)
-        push!(sm.log, "Default handler for StateB received: $(Hsm.event(sm))")
+    @on_event function(sm::DefaultHandlerTestSm, ::StateB, event::Any, arg)
+        push!(sm.log, "Default handler for StateB received: $(event)")
         sm.handled = true
         return Hsm.EventHandled
     end
 
     # Regular handler for specific event in StateB
-    @on_event :StateB :SpecificEvent function(sm::DefaultHandlerTestSm, arg)
+    @on_event function(sm::DefaultHandlerTestSm, ::StateB, ::SpecificEvent, arg)
         push!(sm.log, "Specific handler for SpecificEvent in StateB")
         return Hsm.EventHandled
     end
 
     # Default handler for StateA - should only be called if child states don't handle
-    @on_event :StateA Any function(sm::DefaultHandlerTestSm, arg)
-        push!(sm.log, "Default handler for StateA received: $(Hsm.event(sm))")
+    @on_event function(sm::DefaultHandlerTestSm, ::StateA, event::Any, arg)
+        push!(sm.log, "Default handler for StateA received: $(event)")
         sm.handled = true
         return Hsm.EventHandled
     end
