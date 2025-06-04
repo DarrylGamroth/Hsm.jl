@@ -1,6 +1,211 @@
 # This file originally contained helper functions for extracting arguments from macro function definitions.
 # The implementation has been simplified by directly processing arguments within each macro.
 
+# Helper function to process state machine and arguments in a consistent way
+function process_macro_arguments(def, error_prefix, has_event=false)
+    def.head == :function || error("$error_prefix must wrap a function definition")
+
+    fn_sig = def.args[1]
+    body = def.args[2]
+    args = fn_sig.args
+
+    # Validate argument count
+    min_args = has_event ? 3 : 2
+    if length(args) < min_args
+        required_args = has_event ? "state machine, state, and event" : "state machine and state"
+        error("$error_prefix: Function definition requires at least $min_args arguments: $required_args")
+    end
+
+    # Extract arguments
+    sm_arg = args[1]
+    state_arg = args[2]
+    event_arg = has_event ? args[3] : nothing
+    data_arg = (has_event && length(args) > 3) ? args[4] : gensym("unused")
+
+    # Extract the state machine type and name
+    if sm_arg isa Symbol
+        smarg = sm_arg
+        smtype = :Any
+    elseif sm_arg isa Expr && sm_arg.head == :(::)
+        smarg = sm_arg.args[1]
+        smtype = sm_arg.args[2]
+    else
+        error("$error_prefix: Unexpected argument form for state machine parameter")
+    end
+
+    # Process arguments
+    new_args = Expr[]
+    injected = Expr[]
+
+    # Process state argument
+    state_args, state_injected = process_state_argument(state_arg, error_prefix)
+    append!(new_args, state_args)
+    append!(injected, state_injected)
+
+    # Process event argument if needed
+    is_any_event = false
+    event_name = nothing # Default value when has_event is false
+    if has_event
+        event_args, event_injected, is_any_event, event_name = process_event_argument(event_arg, error_prefix)
+        append!(new_args, event_args)
+        append!(injected, event_injected)
+    end
+
+    # Process data argument
+    if has_event
+        if data_arg isa Symbol && startswith(String(data_arg), "#unused")
+            # Case: not present - create an unused parameter expression with gensym
+            push!(new_args, Expr(:(::), data_arg, :Any))
+        elseif data_arg isa Expr && data_arg.head == :(::)
+            # Case: name::Type
+            push!(new_args, data_arg)
+        else
+            # Case: just name - should be a symbol without type annotation
+            # We still need to create a proper argument expression with Any type
+            push!(new_args, Expr(:(::), data_arg, :Any))
+        end
+    end
+
+    # Push state machine arg to front
+    pushfirst!(new_args, Expr(:(::), smarg, smtype))
+
+    # Return collected results
+    return (smarg, smtype, body, new_args, injected, event_arg, data_arg, is_any_event, event_name)
+end
+
+# Helper function to generate a consistent implementation for state handlers
+function generate_state_handler_impl(handler_name, smarg, smtype, state_arg, full_body)
+    # Use module and function name separately to avoid creating var"Hsm.handler_name!"
+    mod = :Hsm
+    func = Symbol(string(handler_name) * "!")
+    
+    return quote
+        @eval begin
+            function $mod.$func(
+                $smarg::$smtype,
+                $state_arg
+            )
+                $full_body
+            end
+        end
+    end
+end
+
+# Helper function to generate consistent implementation for event handlers
+function generate_event_handler_impl(smarg, smtype, new_args, full_body, is_any_event, event_name)
+    if is_any_event
+        # Special case for Any event - use ValSplit macro
+        return quote
+            @eval begin
+                ValSplit.@valsplit function Hsm.on_event!(
+                    $smarg::$smtype,
+                    $(new_args[2]),
+                    Val($(event_name)::Symbol),
+                    $(new_args[4])
+                )
+                    $full_body
+                end
+
+                function Hsm.on_event!(
+                    $smarg::$smtype,
+                    $(new_args[2]),
+                    ::Val{$(QuoteNode(gensym("Any")))},
+                    $(new_args[4])
+                )
+                    return Hsm.EventNotHandled
+                end                
+            end
+        end
+    else
+        # Normal case - specific event type
+        return quote
+            @eval begin
+                function Hsm.on_event!(
+                    $smarg::$smtype,
+                    $(new_args[2]),
+                    $(new_args[3]),
+                    $(new_args[4])
+                )
+                    $full_body
+                end
+            end
+        end
+    end
+end
+
+# Helper function to process event arguments and generate consistent code
+function process_event_argument(event_arg, error_prefix)
+    new_args = Expr[]
+    injected = Expr[]
+    is_any_event = false
+    
+    if event_arg isa Expr && event_arg.head == :(::)
+        # Extract event type and decide if it needs a name
+        event_type = if length(event_arg.args) == 1
+            event_arg.args[1]
+        else
+            event_arg.args[2]
+        end
+
+        # Determine if we have a named or anonymous parameter
+        has_name = length(event_arg.args) > 1 && event_arg.args[1] isa Symbol
+
+        # Create a name if it's anonymous - this simplifies the logic
+        event_name = has_name ? event_arg.args[1] : gensym("event")
+
+        # Special case for Any event type - use ValSplit
+        if event_type == :Any
+            if !has_name
+                error("$error_prefix: When using ::Any for event type, you must provide a named parameter (e.g., event::Any) to access the event value")
+            end
+            is_any_event = true
+            push!(new_args, Expr(:(::), event_name, :Val))
+        else
+            is_any_event = false
+            event_sym = QuoteNode(Symbol(event_type))
+            push!(new_args, Expr(:(::), event_name, Expr(:curly, :Val, event_sym)))
+
+            # Always inject the event name assignment for consistency
+            push!(injected, :($event_name = $event_sym))
+        end
+    else
+        error("$error_prefix: Event argument must be of the form ::EventType or event::EventType")
+    end
+
+    return new_args, injected, is_any_event, event_name
+end
+
+# Helper function to process state arguments and generate consistent code
+function process_state_argument(state_arg, error_prefix)
+    new_args = Expr[]
+    injected = Expr[]
+
+    if state_arg isa Expr && state_arg.head == :(::)
+        # Extract state type and decide if it needs a name
+        state_type = if length(state_arg.args) == 1
+            state_arg.args[1]
+        else
+            state_arg.args[2]
+        end
+
+        # Determine if we have a named or anonymous parameter
+        has_name = length(state_arg.args) > 1 && state_arg.args[1] isa Symbol
+
+        # Create a name if it's anonymous - this simplifies the logic
+        state_name = has_name ? state_arg.args[1] : gensym("state")
+
+        state_sym = QuoteNode(Symbol(state_type))
+        push!(new_args, Expr(:(::), state_name, Expr(:curly, :Val, state_sym)))
+
+        # Always inject the state name assignment for consistency
+        push!(injected, :($state_name = $state_sym))
+    else
+        error("$error_prefix: State argument must be of the form ::StateType or state::StateType")
+    end
+
+    return new_args, injected
+end
+
 """
     @ancestor smtype child => parent
 
@@ -121,155 +326,20 @@ end
 ```
 """
 macro on_event(def)
-    def.head == :function || error("@on_event must wrap a function definition")
-
-    fn_sig = def.args[1]
-    body = def.args[2]
-    args = fn_sig.args
-
     # Add source location for better error messages
     line = __source__.line
     file = String(__source__.file)
     error_prefix = "@on_event (line $line in $file)"
 
-    if length(args) < 3
-        error("$error_prefix: Function definition requires at least three arguments: state machine, state, and event")
-    end
-
-    sm_arg = args[1]
-    state_arg = args[2]
-    event_arg = args[3]
-    data_arg = length(args) > 3 ? args[4] : gensym("unused")
-
-    # Extract the state machine type and name
-    if sm_arg isa Symbol
-        smarg = sm_arg
-        smtype = :Any
-    elseif sm_arg isa Expr && sm_arg.head == :(::)
-        smarg = sm_arg.args[1]
-        smtype = sm_arg.args[2]
-    else
-        error("$error_prefix: Unexpected argument form for state machine parameter")
-    end
-
-    new_args = Expr[]
-    injected = Expr[]
-
-    # Process state argument
-    if state_arg isa Expr && state_arg.head == :(::)
-        # Extract state type and decide if it needs a name
-        state_type = if length(state_arg.args) == 1
-            state_arg.args[1]
-        else
-            state_arg.args[2]
-        end
-
-        # Determine if we have a named or anonymous parameter
-        has_name = length(state_arg.args) > 1 && state_arg.args[1] isa Symbol
-
-        # Create a name if it's anonymous - this simplifies the logic
-        state_name = has_name ? state_arg.args[1] : gensym("state")
-
-        state_sym = QuoteNode(Symbol(state_type))
-        push!(new_args, Expr(:(::), state_name, Expr(:curly, :Val, state_sym)))
-
-        # Always inject the state name assignment for consistency
-        push!(injected, :($state_name = $state_sym))
-    end
-
-    # Process event argument
-    if event_arg isa Expr && event_arg.head == :(::)
-        # Extract event type and decide if it needs a name
-        event_type = if length(event_arg.args) == 1
-            event_arg.args[1]
-        else
-            event_arg.args[2]
-        end
-
-        # Determine if we have a named or anonymous parameter
-        has_name = length(event_arg.args) > 1 && event_arg.args[1] isa Symbol
-
-        # Create a name if it's anonymous - this simplifies the logic
-        event_name = has_name ? event_arg.args[1] : gensym("event")
-
-        # Special case for Any event type - use ValSplit
-        if event_type == :Any
-            if !has_name
-                error("$error_prefix: When using ::Any for event type, you must provide a named parameter (e.g., event::Any) to access the event value")
-            end
-            is_any_event = true
-            push!(new_args, Expr(:(::), event_name, :Val))
-        else
-            is_any_event = false
-            event_sym = QuoteNode(Symbol(event_type))
-            push!(new_args, Expr(:(::), event_name, Expr(:curly, :Val, event_sym)))
-
-            # Always inject the event name assignment for consistency
-            push!(injected, :($event_name = $event_sym))
-        end
-    else
-        error("$error_prefix: Event argument must be of the form ::EventType or event::EventType")
-    end
-
-    # Push state machine arg to front and data arg at the end
-    pushfirst!(new_args, Expr(:(::), smarg, smtype))
-
-    # Process data argument
-    if data_arg isa Symbol && startswith(String(data_arg), "#unused")
-        # Case: not present - create an unused parameter expression with gensym
-        push!(new_args, Expr(:(::), data_arg, :Any))
-    elseif data_arg isa Expr && data_arg.head == :(::)
-        # Case: name::Type
-        push!(new_args, data_arg)
-    else
-        # Case: just name - should be a symbol without type annotation
-        # We still need to create a proper argument expression with Any type
-        push!(new_args, Expr(:(::), data_arg, :Any))
-    end
+    # Process all arguments with helper function
+    smarg, smtype, body, new_args, injected, _, _, is_any_event, event_name = process_macro_arguments(def, error_prefix, true)
 
     # Construct the full function body with any injected parameter transformations
     full_body = isempty(injected) ? body : Expr(:block, injected..., body)
 
     # Generate the final function using a quote block with @eval for proper hygiene
     # This ensures correct handling of variables from the caller's context
-    if @isdefined(is_any_event) && is_any_event
-        # Special case for Any event - use ValSplit macro
-        return quote
-            @eval begin
-                ValSplit.@valsplit function Hsm.on_event!(
-                    $smarg::$smtype,
-                    $(new_args[2]),
-                    Val($(event_name)::Symbol),
-                    $(new_args[4])
-                )
-                    $full_body
-                end
-
-                function Hsm.on_event!(
-                    $smarg::$smtype,
-                    $(new_args[2]),
-                    ::Val{$(QuoteNode(gensym("Any")))},
-                    $(new_args[4])
-                )
-                    return Hsm.EventNotHandled
-                end                
-            end
-        end
-    else
-        # Normal case - specific event type
-        return quote
-            @eval begin
-                function Hsm.on_event!(
-                    $smarg::$smtype,
-                    $(new_args[2]),
-                    $(new_args[3]),
-                    $(new_args[4])
-                )
-                    $full_body
-                end
-            end
-        end
-    end
+    return generate_event_handler_impl(smarg, smtype, new_args, full_body, is_any_event, event_name)
 end
 
 """
@@ -308,75 +378,19 @@ end
 ```
 """
 macro on_initial(def)
-    def.head == :function || error("@on_initial must wrap a function definition")
-
-    fn_sig = def.args[1]
-    body = def.args[2]
-    args = fn_sig.args
-
     # Add source location for better error messages
     line = __source__.line
     file = String(__source__.file)
     error_prefix = "@on_initial (line $line in $file)"
 
-    if length(args) < 2
-        error("$error_prefix: Function definition requires at least two arguments: state machine and state")
-    end
-
-    sm_arg = args[1]
-    state_arg = args[2]
-
-    # Extract the state machine type and name
-    if sm_arg isa Symbol
-        smarg = sm_arg
-        smtype = :Any
-    elseif sm_arg isa Expr && sm_arg.head == :(::)
-        smarg = sm_arg.args[1]
-        smtype = sm_arg.args[2]
-    else
-        error("$error_prefix: Unexpected argument form for state machine parameter")
-    end
-
-    new_args = Expr[]
-    injected = Expr[]
-
-    # Process state argument
-    if state_arg isa Expr && state_arg.head == :(::)
-        if length(state_arg.args) == 1 || !(state_arg.args[1] isa Symbol)
-            # Anonymous: ::StateA → ::Val{:StateA}
-            state_type = length(state_arg.args) == 1 ? state_arg.args[1] : state_arg.args[2]
-            state_sym = QuoteNode(Symbol(state_type))
-            push!(new_args, Expr(:(::), Expr(:curly, :Val, state_sym)))
-        else
-            # Named: state::StateA → state::Val{:StateA}
-            state_name = state_arg.args[1]
-            state_type = state_arg.args[2]
-            state_sym = QuoteNode(Symbol(state_type))
-            push!(new_args, Expr(:(::), state_name, Expr(:curly, :Val, state_sym)))
-            push!(injected, :($state_name = $state_sym))
-        end
-    else
-        error("$error_prefix: State argument must be of the form ::StateType or state::StateType")
-    end
-
-    # Push state machine arg to front
-    pushfirst!(new_args, Expr(:(::), smarg, smtype))
+    # Process all arguments with helper function
+    smarg, smtype, body, new_args, injected, _, _ = process_macro_arguments(def, error_prefix)
 
     # Construct the full function body with any injected parameter transformations
     full_body = isempty(injected) ? body : Expr(:block, injected..., body)
 
-    # Generate the final function using a quote block with @eval for proper hygiene
-    # This ensures correct handling of variables from the caller's context
-    return quote
-        @eval begin
-            function Hsm.on_initial!(
-                $smarg::$smtype,
-                $(new_args[2])
-            )
-                $full_body
-            end
-        end
-    end
+    # Use helper function to generate the handler implementation
+    return generate_state_handler_impl(:on_initial, smarg, smtype, new_args[2], full_body)
 end
 
 """
@@ -406,75 +420,19 @@ end
 ```
 """
 macro on_entry(def)
-    def.head == :function || error("@on_entry must wrap a function definition")
-
-    fn_sig = def.args[1]
-    body = def.args[2]
-    args = fn_sig.args
-
     # Add source location for better error messages
     line = __source__.line
     file = String(__source__.file)
     error_prefix = "@on_entry (line $line in $file)"
-
-    if length(args) < 2
-        error("$error_prefix: Function definition requires at least two arguments: state machine and state")
-    end
-
-    sm_arg = args[1]
-    state_arg = args[2]
-
-    # Extract the state machine type and name
-    if sm_arg isa Symbol
-        smarg = sm_arg
-        smtype = :Any
-    elseif sm_arg isa Expr && sm_arg.head == :(::)
-        smarg = sm_arg.args[1]
-        smtype = sm_arg.args[2]
-    else
-        error("$error_prefix: Unexpected argument form for state machine parameter")
-    end
-
-    new_args = Expr[]
-    injected = Expr[]
-
-    # Process state argument
-    if state_arg isa Expr && state_arg.head == :(::)
-        if length(state_arg.args) == 1 || !(state_arg.args[1] isa Symbol)
-            # Anonymous: ::StateA → ::Val{:StateA}
-            state_type = length(state_arg.args) == 1 ? state_arg.args[1] : state_arg.args[2]
-            state_sym = QuoteNode(Symbol(state_type))
-            push!(new_args, Expr(:(::), Expr(:curly, :Val, state_sym)))
-        else
-            # Named: state::StateA → state::Val{:StateA}
-            state_name = state_arg.args[1]
-            state_type = state_arg.args[2]
-            state_sym = QuoteNode(Symbol(state_type))
-            push!(new_args, Expr(:(::), state_name, Expr(:curly, :Val, state_sym)))
-            push!(injected, :($state_name = $state_sym))
-        end
-    else
-        error("$error_prefix: State argument must be of the form ::StateType or state::StateType")
-    end
-
-    # Push state machine arg to front
-    pushfirst!(new_args, Expr(:(::), smarg, smtype))
+    
+    # Process all arguments with helper function
+    smarg, smtype, body, new_args, injected, _, _ = process_macro_arguments(def, error_prefix)
 
     # Construct the full function body with any injected parameter transformations
     full_body = isempty(injected) ? body : Expr(:block, injected..., body)
 
-    # Generate the final function using a quote block with @eval for proper hygiene
-    # This ensures correct handling of variables from the caller's context
-    return quote
-        @eval begin
-            function Hsm.on_entry!(
-                $smarg::$smtype,
-                $(new_args[2])
-            )
-                $full_body
-            end
-        end
-    end
+    # Use helper function to generate the handler implementation
+    return generate_state_handler_impl(:on_entry, smarg, smtype, new_args[2], full_body)
 end
 
 """
@@ -504,75 +462,19 @@ end
 ```
 """
 macro on_exit(def)
-    def.head == :function || error("@on_exit must wrap a function definition")
-
-    fn_sig = def.args[1]
-    body = def.args[2]
-    args = fn_sig.args
-
     # Add source location for better error messages
     line = __source__.line
     file = String(__source__.file)
     error_prefix = "@on_exit (line $line in $file)"
 
-    if length(args) < 2
-        error("$error_prefix: Function definition requires at least two arguments: state machine and state")
-    end
-
-    sm_arg = args[1]
-    state_arg = args[2]
-
-    # Extract the state machine type and name
-    if sm_arg isa Symbol
-        smarg = sm_arg
-        smtype = :Any
-    elseif sm_arg isa Expr && sm_arg.head == :(::)
-        smarg = sm_arg.args[1]
-        smtype = sm_arg.args[2]
-    else
-        error("$error_prefix: Unexpected argument form for state machine parameter")
-    end
-
-    new_args = Expr[]
-    injected = Expr[]
-
-    # Process state argument
-    if state_arg isa Expr && state_arg.head == :(::)
-        if length(state_arg.args) == 1 || !(state_arg.args[1] isa Symbol)
-            # Anonymous: ::StateA → ::Val{:StateA}
-            state_type = length(state_arg.args) == 1 ? state_arg.args[1] : state_arg.args[2]
-            state_sym = QuoteNode(Symbol(state_type))
-            push!(new_args, Expr(:(::), Expr(:curly, :Val, state_sym)))
-        else
-            # Named: state::StateA → state::Val{:StateA}
-            state_name = state_arg.args[1]
-            state_type = state_arg.args[2]
-            state_sym = QuoteNode(Symbol(state_type))
-            push!(new_args, Expr(:(::), state_name, Expr(:curly, :Val, state_sym)))
-            push!(injected, :($state_name = $state_sym))
-        end
-    else
-        error("$error_prefix: State argument must be of the form ::StateType or state::StateType")
-    end
-
-    # Push state machine arg to front
-    pushfirst!(new_args, Expr(:(::), smarg, smtype))
+    # Process all arguments with helper function
+    smarg, smtype, body, new_args, injected, _, _ = process_macro_arguments(def, error_prefix)
 
     # Construct the full function body with any injected parameter transformations
     full_body = isempty(injected) ? body : Expr(:block, injected..., body)
 
-    # Generate the final function using a quote block with @eval for proper hygiene
-    # This ensures correct handling of variables from the caller's context
-    return quote
-        @eval begin
-            function Hsm.on_exit!(
-                $smarg::$smtype,
-                $(new_args[2])
-            )
-                $full_body
-            end
-        end
-    end
+    # Use helper function to generate the handler implementation
+    return generate_state_handler_impl(:on_exit, smarg, smtype, new_args[2], full_body)
 end
 
 """
