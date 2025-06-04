@@ -47,7 +47,6 @@ using Hsm
     # Test 1: Basic default handler in current state
     @testset "Default handler in current state" begin
         sm = DefaultHandlerTestSm(String[], false)
-        Hsm.initialize!(sm)
         
         # Clear log after initialization
         sm.log = String[]
@@ -65,7 +64,6 @@ using Hsm
     # Test 2: Specific handler should take precedence over default
     @testset "Specific handler precedence" begin
         sm = DefaultHandlerTestSm(String[], false)
-        Hsm.initialize!(sm)
         
         # Clear log after initialization
         sm.log = String[]
@@ -83,7 +81,6 @@ using Hsm
     # Test 3: Default handler in parent state
     @testset "Default handler in parent state" begin
         sm = DefaultHandlerTestSm(String[], false)
-        Hsm.initialize!(sm)
         
         # Transition to StateC which has no handlers
         Hsm.transition!(sm, :StateC)
@@ -104,7 +101,6 @@ using Hsm
     # Test 4: Multiple event types with default handler
     @testset "Multiple event types with default handler" begin
         sm = DefaultHandlerTestSm(String[], false)
-        Hsm.initialize!(sm)
         
         # Send three different events to the same state
         events = [:Event1, :Event2, :Event3]

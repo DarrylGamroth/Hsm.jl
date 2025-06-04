@@ -48,7 +48,6 @@ using Hsm
 
     # Create and initialize the state machine
     sm = KwargTestSm(String[], Dict{Symbol,Symbol}())
-    Hsm.initialize!(sm)
     Hsm.current!(sm, :State_S1)
 
     # Test traditional handler

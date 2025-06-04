@@ -63,9 +63,8 @@ end
     return Hsm.EventNotHandled
 end
 
-# Initialize and use the state machine
+# Create and use the state machine - initialization is automatic
 sm = LightSwitch(power_on=false)
-Hsm.initialize!(sm)
 Hsm.dispatch!(sm, :Toggle)  # Transitions to On
 Hsm.dispatch!(sm, :UnknownEvent)  # Will be caught by the default handler
 ```

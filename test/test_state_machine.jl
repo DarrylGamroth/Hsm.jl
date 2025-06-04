@@ -148,7 +148,6 @@ using Hsm
     @testset "Initialization" begin
         # Create a fresh state machine instance
         sm = ComplexTestSm(0, String[])
-        Hsm.initialize!(sm)  # Initialize the state machine
         
         # Check final state
         @test Hsm.current(sm) === :State_S11
@@ -164,7 +163,6 @@ using Hsm
     @testset "Event Handling and State Transitions" begin
         # Create a fresh state machine instance
         sm = ComplexTestSm(0, String[])
-        Hsm.initialize!(sm)  # Initialize the state machine
         empty!(sm.log)  # Clear the log
         
         # Test event that causes transition
@@ -220,7 +218,6 @@ using Hsm
         sm = ComplexTestSm(0, String[])
         
         # Initialize the state machine first
-        Hsm.initialize!(sm)
         empty!(sm.log)
         
         # Test transition that triggers exit handlers from current branch
@@ -240,24 +237,9 @@ using Hsm
         @test "Entered State_S211" in sm.log
     end
     
-    @testset "Initialization with event field" begin
-        # Create a state machine and verify initialization of event field
-        sm = ComplexTestSm(0, String[])
-        
-        # Set event to something other than :None to verify initialize! resets it
-        Hsm.event!(sm, :SomeEvent)
-        
-        # Initialize the state machine
-        Hsm.initialize!(sm)
-        
-        # Check that the event field is properly initialized
-        @test Hsm.event(sm) === :None
-    end
-    
     @testset "Event tracking during dispatch" begin
         # Create a state machine for testing event tracking
         sm = ComplexTestSm(0, String[])
-        Hsm.initialize!(sm)
         
         # Verify that the event field is updated during dispatch
         Hsm.dispatch!(sm, :Event_Reset)

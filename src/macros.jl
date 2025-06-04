@@ -556,28 +556,41 @@ macro hsmdef(struct_expr)
     # Calculate number of user fields (without _current, _source, and _event)
     num_user_fields = length(fields) - 3
 
-    # Create the new struct definition with the additional fields
-    new_struct_body = Expr(:block, fields...)
+    # Add an internal constructor to initialize the state machine
+    internal_constructor = quote
+        function $(struct_name)(current, source, event, args::Vararg{Any,$num_user_fields})
+            # Ensure the correct number of arguments
+            sm = new(args..., current, source, event)
+
+            # Call on_initial! to properly initialize the state machine
+            Hsm.on_initial!(sm, Hsm.Root)
+
+            return sm
+        end
+    end
+
+    # Create the new struct definition with the additional fields and internal constructor
+    new_struct_body = Expr(:block, fields..., internal_constructor)
     new_struct_def = Expr(:struct, mutable_flag, struct_name, new_struct_body)
 
     # Generate the implementation
     result = quote
-        # Define the struct with the added fields
+        # Define the struct with the added fields and internal constructor
         $(esc(new_struct_def))
 
-        # Add convenience constructor that adds Root for state fields and :None for event
         function $(esc(struct_name))(args::Vararg{Any,$num_user_fields})
-            return $(esc(struct_name))(args..., Hsm.Root, Hsm.Root, :None)
+            return $(esc(struct_name))(Root, Root, :None, args...)
         end
 
         # Add keyword constructor for named parameters
         function $(esc(struct_name))(; kwargs...)
             # Handle the case where there are no user fields
-            if $num_user_fields == 0
-                return $(esc(struct_name))(Hsm.Root, Hsm.Root, :None)
-            end
+            # if $num_user_fields == 0
+            #     # Create the instance which will call the internal constructor
+            #     return $(esc(struct_name))(Root, Root, :None)
+            # end
 
-            # Extract field names (excluding _current and _source)
+            # Extract field names (excluding reserved fields)
             field_symbols = $(Expr(:vect, [x isa Symbol ? QuoteNode(x) : QuoteNode(x.args[1]) for x in fields[1:num_user_fields]]...))
 
             # Collect arguments in the correct order
@@ -590,8 +603,8 @@ macro hsmdef(struct_expr)
                 end
             end
 
-            # Call the positional constructor which adds default state values
-            return $(esc(struct_name))(args...)
+            # Create the instance which will call the internal constructor
+            return $(esc(struct_name))(Root, Root, :None, args...)
         end
 
         # Implement the Hsm interface methods
@@ -605,26 +618,26 @@ macro hsmdef(struct_expr)
         # Add default state machine handlers with type-specific dispatch
         # This ensures each state machine has its own default handlers
         # and prevents method ambiguity between different state machines
-        
+
         # Use @eval to properly create the handlers with the correct scope
         @eval begin
             # Default initial handler (returns EventHandled)
             ValSplit.@valsplit Hsm.on_initial!(sm::$(struct_name), Val(state::Symbol)) = Hsm.EventHandled
-            
+
             # Default entry handler (does nothing)
             ValSplit.@valsplit Hsm.on_entry!(sm::$(struct_name), Val(state::Symbol)) = nothing
-            
+
             # Default exit handler (does nothing)
             ValSplit.@valsplit Hsm.on_exit!(sm::$(struct_name), Val(state::Symbol)) = nothing
-            
+
             # Default event handler (returns EventNotHandled to propagate events up)
             ValSplit.@valsplit Hsm.on_event!(
                 sm::$(struct_name),
-                Val(state::Symbol), 
-                Val(event::Symbol), 
+                Val(state::Symbol),
+                Val(event::Symbol),
                 arg
             ) = Hsm.EventNotHandled
-            
+
             # Default ancestor method with error for undefined states
             ValSplit.@valsplit function Hsm.ancestor(
                 sm::$(struct_name),
@@ -633,7 +646,7 @@ macro hsmdef(struct_expr)
                 error("No ancestor for state \$state in $($(struct_name))")
                 return Hsm.Root
             end
-            
+
             # Special case: Root state's ancestor is Root itself
             Hsm.ancestor(sm::$(struct_name), ::Val{Hsm.Root}) = Hsm.Root
         end

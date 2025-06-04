@@ -10,11 +10,9 @@ include("macros.jl")
 
 export EventHandled, EventNotHandled, Root
 export current, current!, source, source!, event, event!, ancestor
-export initialize!
 export on_initial!, on_entry!, on_exit!, on_event!
 export transition!, dispatch!
 export @on_event, @on_initial, @ancestor, @on_entry, @on_exit, @hsmdef
-
 
 """
     EventReturn
@@ -120,18 +118,6 @@ Hsm.event!(sm::HsmTest, event) = sm.event = event
 ```
 """
 function event! end
-
-"""
-    initialize!(sm)
-
-Initialize state machine `sm`.
-"""
-function initialize!(sm)
-    current!(sm, Root)
-    source!(sm, Root)
-    event!(sm, :None)
-    on_initial!(sm, Root)
-end
 
 """
     ancestor(sm, state::Val{STATE})
