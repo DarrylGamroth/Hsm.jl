@@ -144,13 +144,11 @@ To speficfy the ancestor for `sm`=HsmState State_S is [`Root`](@ref):
 ```julia
 Hsm.ancestor(sm::HsmTest, ::Val{State_S}) = Root
 ```
-"""
-@valsplit function ancestor(sm, Val(state::StateType))
-    error("No ancestor for state $state")
-    return Root
-end
 
-ancestor(sm, ::Val{Root}) = Root
+Note: A default implementation is automatically added by the `@hsmdef` macro for each
+state machine type, which reports an error for undefined states and handles the Root state.
+"""
+function ancestor end
 
 """
     on_initial!(sm, state::Val{STATE})
@@ -177,8 +175,11 @@ Hsm.on_initial!(sm::HsmTest, state::Val{State_S}) =
         # Do something on the transition
     end
 ```
+
+Note: The default implementation of `on_initial!` is automatically defined by 
+the `@hsmdef` macro for each state machine type, which returns `EventHandled`.
 """
-@valsplit on_initial!(sm, Val(state::StateType)) = EventHandled
+function on_initial! end
 
 """
     on_entry!(sm, state::Val{STATE})
@@ -191,8 +192,11 @@ function Hsm.on_entry!(sm::HsmTest, state::Val{State_S2})
     # Do something on entry
 end
 ```
+
+Note: The default implementation of `on_entry!` is automatically defined by 
+the `@hsmdef` macro for each state machine type, which does nothing.
 """
-@valsplit on_entry!(sm, Val(state::StateType)) = nothing
+function on_entry! end
 
 """
     on_exit!(sm, state::Val{STATE})
@@ -205,8 +209,11 @@ function Hsm.on_exit!(sm::HsmTest, state::Val{State_S2})
     # Do something on exit
 end
 ```
+
+Note: The default implementation of `on_exit!` is automatically defined by 
+the `@hsmdef` macro for each state machine type, which does nothing.
 """
-@valsplit on_exit!(sm, Val(state::StateType)) = nothing
+function on_exit! end
 
 """
     on_event!(sm, state::Val{STATE}, event::Val{:EVENT}, arg)
@@ -239,15 +246,11 @@ function Hsm.on_event!(sm::HsmTest, state::Val{State_S2}, event::Val{:Event_I}, 
     end
 end
 ```
+
+Note: The default implementation of `on_event!` is automatically defined by 
+the `@hsmdef` macro for each state machine type, which returns `EventNotHandled`.
 """
-@valsplit function on_event!(
-    sm,
-    Val(state::StateType),
-    Val(event::EventType),
-    arg
-)
-    return EventNotHandled
-end
+function on_event! end
 
 function do_entry!(sm, s::StateType, t::StateType)
     if s == t

@@ -6,6 +6,8 @@ A zero-allocation, dynamic dispatch-free hierarchical state machine library for 
 
 Hsm.jl provides a framework for implementing hierarchical state machines (HSMs) in Julia. The library is designed for performance-critical applications where allocations and dynamic dispatch must be avoided.
 
+> **IMPORTANT**: Always use the `@hsmdef` macro to define state machines. The macro automatically generates type-specific default handlers that are required for proper functionality.
+
 ## Features
 
 - **Zero-allocation design**: No allocations during state transitions and event processing
@@ -15,6 +17,7 @@ Hsm.jl provides a framework for implementing hierarchical state machines (HSMs) 
 - **Modular organization**: Support for distributing state handlers across multiple files
 - **Default event handlers**: Support for catch-all handlers that process any unhandled event
 - **Event tracking**: Automatic tracking of the current event being processed
+- **Type-safe default handlers**: Each state machine gets its own set of type-specific default handlers
 
 ## Installation
 
@@ -100,6 +103,16 @@ Default handlers are useful for:
 - Implementing fallback behavior
 - Building diagnostic tools
 - Creating more flexible state machines
+
+## Multiple State Machine Considerations
+
+Hsm.jl supports using multiple state machine types in the same Julia session. Each state machine defined with the `@hsmdef` macro gets its own type-specific default handlers, ensuring no method dispatch ambiguities between different state machine types.
+
+### Best Practices for Multiple State Machines
+
+1. **Always use @hsmdef**: Define all state machines using the `@hsmdef` macro to ensure proper handler generation.
+2. **Be consistent**: Either define ALL necessary handlers for your state machines, or define NONE and rely on defaults.
+3. **Document dependencies**: Make it clear in your state machine documentation whether it requires explicit handlers or relies on defaults.
 
 ## License
 

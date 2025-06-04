@@ -1,5 +1,6 @@
 using Test
 using Hsm
+using ValSplit
 
 @testset "Macros" begin
     @testset "@hsmdef macro" begin

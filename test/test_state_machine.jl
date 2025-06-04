@@ -19,6 +19,11 @@ using Hsm
         :State_S211 => :State_S21
     end
     
+    @on_initial Hsm.Root function(sm::ComplexTestSm)
+        push!(sm.log, "Initial handler for Hsm.Root")
+        return Hsm.transition!(sm, :State_Top)
+    end
+
     # Define handlers for State_Top
     @on_entry :State_Top function(sm::ComplexTestSm)
         push!(sm.log, "Entered State_Top")
@@ -143,12 +148,7 @@ using Hsm
     @testset "Initialization" begin
         # Create a fresh state machine instance
         sm = ComplexTestSm(0, String[])
-        
-        # Initialize the state machine starting from Top state
-        Hsm.on_entry!(sm, :State_Top)  # Call entry handler manually
-        Hsm.current!(sm, :State_Top)
-        Hsm.source!(sm, :State_Top)
-        Hsm.on_initial!(sm, :State_Top)
+        Hsm.initialize!(sm)  # Initialize the state machine
         
         # Check final state
         @test Hsm.current(sm) === :State_S11
@@ -164,9 +164,7 @@ using Hsm
     @testset "Event Handling and State Transitions" begin
         # Create a fresh state machine instance
         sm = ComplexTestSm(0, String[])
-        Hsm.current!(sm, :State_Top)
-        Hsm.source!(sm, :State_Top)
-        Hsm.on_initial!(sm, :State_Top)
+        Hsm.initialize!(sm)  # Initialize the state machine
         empty!(sm.log)  # Clear the log
         
         # Test event that causes transition
@@ -220,9 +218,9 @@ using Hsm
     @testset "Direct State Transitions" begin
         # Create a fresh state machine instance
         sm = ComplexTestSm(0, String[])
-        Hsm.current!(sm, :State_Top)
-        Hsm.source!(sm, :State_Top)
-        Hsm.on_initial!(sm, :State_Top)
+        
+        # Initialize the state machine first
+        Hsm.initialize!(sm)
         empty!(sm.log)
         
         # Test transition that triggers exit handlers from current branch
