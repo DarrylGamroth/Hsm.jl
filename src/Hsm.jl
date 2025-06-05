@@ -148,7 +148,7 @@ Hsm.on_initial!(sm::HsmTest, state::Val{State_S}) =
     end
 ```
 
-Note: The default implementation of `on_initial!` is automatically defined by 
+Note: The default implementation of `on_initial!` is automatically defined by
 the `@hsmdef` macro for each state machine type, which returns `EventHandled`.
 """
 function on_initial! end
@@ -165,7 +165,7 @@ function Hsm.on_entry!(sm::HsmTest, state::Val{State_S2})
 end
 ```
 
-Note: The default implementation of `on_entry!` is automatically defined by 
+Note: The default implementation of `on_entry!` is automatically defined by
 the `@hsmdef` macro for each state machine type, which does nothing.
 """
 function on_entry! end
@@ -182,7 +182,7 @@ function Hsm.on_exit!(sm::HsmTest, state::Val{State_S2})
 end
 ```
 
-Note: The default implementation of `on_exit!` is automatically defined by 
+Note: The default implementation of `on_exit!` is automatically defined by
 the `@hsmdef` macro for each state machine type, which does nothing.
 """
 function on_exit! end
@@ -219,7 +219,7 @@ function Hsm.on_event!(sm::HsmTest, state::Val{State_S2}, event::Val{:Event_I}, 
 end
 ```
 
-Note: The default implementation of `on_event!` is automatically defined by 
+Note: The default implementation of `on_event!` is automatically defined by
 the `@hsmdef` macro for each state machine type, which returns `EventNotHandled`.
 """
 function on_event! end
@@ -348,7 +348,7 @@ Dispatch the event in state machine `sm`.
 """
 function dispatch!(sm, event::Symbol, arg=nothing)
     s = current(sm)
-    
+
     # Store the current event being dispatched
     event!(sm, event)
 

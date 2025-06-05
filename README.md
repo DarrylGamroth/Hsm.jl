@@ -71,10 +71,10 @@ Hsm.dispatch!(sm, :UnknownEvent)  # Will be caught by the default handler
 
 ## Examples
 
-The `example/` directory contains various examples demonstrating different approaches:
+The `example/` directory contains various examples:
 
 - `example.jl`: Traditional approach example
-- `simplest_example.jl`: Simplified approach example
+- `simplest_example.jl`: Simplified example
 
 ## Advanced Features
 
@@ -83,8 +83,11 @@ The `example/` directory contains various examples demonstrating different appro
 - Event handling with arguments
 - Complex state hierarchies with nested states
 - Default event handlers with the `Any` keyword
+- Generic entry/exit handlers using `::Any` state type
 
-## Default Event Handlers
+## Generic Handlers with `Any`
+
+### Default Event Handlers
 
 The library supports default event handlers that can process any unhandled event in a specific state:
 
@@ -102,6 +105,31 @@ Default handlers are useful for:
 - Implementing fallback behavior
 - Building diagnostic tools
 - Creating more flexible state machines
+
+### Generic Entry/Exit Handlers
+
+Similarly, you can define generic entry and exit handlers that apply to any state without a more specific handler:
+
+```julia
+# Generic entry handler for any state
+@on_entry function(sm::MyStateMachine, state::Any)
+    println("Entering state: $(state)")
+    sm.state_history[end+1] = state
+end
+
+# Generic exit handler for any state
+@on_exit function(sm::MyStateMachine, state::Any)
+    println("Exiting state: $(state)")
+    sm.timestamps[state] = now()
+end
+```
+
+Key points about generic entry/exit handlers:
+
+- Must use a named parameter (e.g., `state::Any`) to access the state value
+- Specific state handlers take precedence over generic handlers
+- In hierarchical transitions, handlers are called in the appropriate order (exit: specific to generic, entry: generic to specific)
+- Useful for logging, state tracking, and centralized state management
 
 ## Multiple State Machine Considerations
 
@@ -126,7 +154,6 @@ These exception types provide more specific error information than generic error
 ### Common Errors
 
 - **Non-mutable State Machine**: State machines must be declared with `mutable struct`
-- **Reserved Field Names**: Fields named `_current`, `_source`, and `_event` are reserved
 - **State Argument Format**: State arguments must be of the form `::StateName` or `state::StateName`
 - **Event Argument Format**: Event arguments must be of the form `::EventName` or `event::EventName`
 - **Ancestor Errors**: Undefined state relationships or invalid relationship expressions
@@ -155,17 +182,6 @@ catch e
         rethrow(e)
     end
 end
-```
-
-### Undefined State Handling
-
-When accessing an undefined state's ancestor, a descriptive error message is provided:
-
-```julia
-# Will throw HsmStateError with a helpful message
-Hsm.ancestor(sm, Val(:Undefined_State))
-# Error: HsmStateError: No ancestor defined for state Undefined_State in MyStateMachine.
-# Use the @ancestor macro to define state relationships.
 ```
 
 ## License

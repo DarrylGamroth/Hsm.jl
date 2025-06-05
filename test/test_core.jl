@@ -101,7 +101,7 @@ end
     #    |         |      |
     # StateA11   StateA21 StateB11
     #                      |
-    #                    StateB111    
+    #                    StateB111
     @valsplit Hsm.ancestor(sm::TestLcaSm, Val(state::Symbol)) = :Root
 
     # Root state

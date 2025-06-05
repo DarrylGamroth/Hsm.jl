@@ -101,17 +101,23 @@ function generate_state_handler_impl(handler_name, smarg, smtype, state_arg, ful
         # Special case for Any state - use ValSplit macro
         return quote
             @eval begin
+                # This function provides the catch-all Any state handler
+                # It should only be called when no specific handler is found
+                function $mod.$func(
+                    $smarg::$smtype,
+                    val::Val{S}
+                ) where {S}
+                    # Call the generated handler with the state symbol as parameter
+                    # This is preferred over hard-coding a fallback function
+                    $mod.$func($smarg, Val(Symbol(S)))
+                end
+
+                # Define the actual generic handler that accepts a state symbol
                 ValSplit.@valsplit function $mod.$func(
                     $smarg::$smtype,
                     Val($(state_name)::Symbol)
                 )
                     $full_body
-                end
-
-                function $mod.$func(
-                    $smarg::$smtype,
-                    ::Val{$(QuoteNode(gensym("Any")))}
-                )
                 end
             end
         end
@@ -454,24 +460,35 @@ end
         # entry code
     end
 
-Define an entry handler for a specific state. Entry handlers are executed when transitioning into a state.
+    @on_entry function(sm::MyStateMachine, state::Any)
+        # generic entry code for any state
+    end
+
+Define an entry handler for a specific state or for any state. Entry handlers are executed when transitioning into a state.
 
 # Arguments
 - `function`: A function definition with the state machine as first argument, followed by state type
 
+# Special Handlers
+- Use `state::Any` to define a generic handler that applies to any state without a more specific handler.
+  This is useful for common entry behavior like logging or state tracking.
+- When using `::Any`, you must provide a named parameter to access the state value.
+- In a hierarchical state machine, when transitioning to a state, specific handlers take precedence over generic `::Any` handlers.
+- When entering a state, all entry handlers for parent states are executed in hierarchical order (from root to the target state)
+  unless entry handlers for those states are overridden by more specific handlers.
+
 # Examples
 ```julia
-# Simple entry handler
+# Simple entry handler for a specific state
 @on_entry function(sm::MyStateMachine, ::StateRunning)
     println("Entering Running state")
-    sm.status = "running"
+    sm.start_time = now()
 end
 
-# With named state parameter
-@on_entry function(sm::MyStateMachine, state::StateError)
-    @debug "Entering Error state"
-    sm.error_count += 1
-    sm.last_error_time = now()
+# Generic handler for any state - will apply to all states without specific handlers
+@on_entry function(sm::MyStateMachine, state::Any)
+    @info "Entering state \$(state)"
+    sm.state_history[end+1] = state
 end
 ```
 """
@@ -496,24 +513,42 @@ end
         # exit code
     end
 
-Define an exit handler for a specific state. Exit handlers are executed when transitioning out of a state.
+    @on_exit function(sm::MyStateMachine, state::Any)
+        # generic exit code for any state
+    end
+
+Define an exit handler for a specific state or for any state. Exit handlers are executed when transitioning out of a state.
 
 # Arguments
 - `function`: A function definition with the state machine as first argument, followed by state type
 
+# Special Handlers
+- Use `state::Any` to define a generic handler that applies to any state without a more specific handler.
+  This is useful for common exit behavior like cleanup or state history tracking.
+- When using `::Any`, you must provide a named parameter to access the state value.
+- In hierarchical transitions, exit handlers are executed from the most specific state up to the common ancestor.
+- When transitioning between states with a common parent, exit handlers for all states in the exit path are called,
+  with specific handlers taking precedence over generic `::Any` handlers for each state in the path.
+
 # Examples
 ```julia
-# Simple exit handler
+# Simple exit handler for a specific state
 @on_exit function(sm::MyStateMachine, ::StateRunning)
     println("Exiting Running state")
     sm.running_time += now() - sm.start_time
 end
 
-# With named state parameter
+# With named state parameter for a specific state
 @on_exit function(sm::MyStateMachine, state::StateConnected)
     @debug "Cleaning up connection resources"
     close(sm.connection)
     sm.connection = nothing
+end
+
+# Generic handler for any state - will apply to all states without specific handlers
+@on_exit function(sm::MyStateMachine, state::Any)
+    @info "Exiting state \$(state)"
+    push!(sm.state_history, (state, now()))
 end
 ```
 """

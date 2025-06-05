@@ -9,4 +9,5 @@ using Hsm
     include("test_error_handling.jl")
     include("test_default_handlers.jl")
     include("test_on_event_kwargs.jl")
+    include("test_any_state_handlers.jl")
 end

@@ -8,7 +8,7 @@ using Hsm
         @test_throws Hsm.HsmStateError throw(Hsm.HsmStateError("Test error"))
         @test_throws Hsm.HsmEventError throw(Hsm.HsmEventError("Test error"))
     end
-    
+
     @testset "@hsmdef Error Handling" begin
         # Test non-mutable struct error
         @test_throws LoadError try
@@ -22,13 +22,13 @@ using Hsm
             rethrow(e)
         end
     end
-    
+
     @testset "@ancestor Error Handling" begin
         # Create a valid state machine for testing errors
         @hsmdef mutable struct ErrorTestSm
             value::Int
         end
-        
+
         # Test with wrong number of arguments
         @test_throws LoadError try
             @eval @ancestor ErrorTestSm
@@ -38,7 +38,7 @@ using Hsm
             @test occursin("Expected exactly two arguments", orig_e.msg)
             rethrow(e)
         end
-        
+
         # Test with invalid relationship format
         @test_throws LoadError try
             @eval @ancestor ErrorTestSm :StateA
@@ -48,7 +48,7 @@ using Hsm
             @test occursin("must be an expression with =>", orig_e.msg)
             rethrow(e)
         end
-        
+
         # Test invalid statement in block
         @test_throws LoadError try
             @eval @ancestor ErrorTestSm begin
@@ -60,7 +60,7 @@ using Hsm
             @test occursin("Invalid statement in block", orig_e.msg)
             rethrow(e)
         end
-        
+
         # Test invalid relationship in block
         @test_throws LoadError try
             @eval @ancestor ErrorTestSm begin
@@ -73,11 +73,11 @@ using Hsm
             rethrow(e)
         end
     end
-    
+
     @testset "Process Arguments Error Handling" begin
         # Test macro with incorrect state argument form
         @test_throws LoadError try
-            @eval @on_entry function(sm::ErrorTestSm, StateA)
+            @eval @on_entry function (sm::ErrorTestSm, StateA)
                 return nothing
             end
         catch e
@@ -86,10 +86,10 @@ using Hsm
             @test occursin("State argument must be of the form", orig_e.msg)
             rethrow(e)
         end
-        
+
         # Test macro with incorrect event argument form
         @test_throws LoadError try
-            @eval @on_event function(sm::ErrorTestSm, ::StateA, EventX)
+            @eval @on_event function (sm::ErrorTestSm, ::StateA, EventX)
                 return Hsm.EventHandled
             end
         catch e
@@ -98,10 +98,10 @@ using Hsm
             @test occursin("Event argument must be of the form", orig_e.msg)
             rethrow(e)
         end
-        
+
         # Test Any event without name
         @test_throws LoadError try
-            @eval @on_event function(sm::ErrorTestSm, ::StateA, ::Any)
+            @eval @on_event function (sm::ErrorTestSm, ::StateA, ::Any)
                 return Hsm.EventHandled
             end
         catch e
@@ -111,18 +111,18 @@ using Hsm
             rethrow(e)
         end
     end
-    
+
     @testset "Ancestor Error for Undefined State" begin
         # Create a test state machine
         @hsmdef mutable struct AncestorErrorTestSm
             value::Int
         end
-        
+
         # Define a partial ancestry
         @ancestor AncestorErrorTestSm :State_A => :Root
-        
+
         sm = AncestorErrorTestSm(0)
-        
+
         # Accessing an undefined state should raise HsmStateError
         # Don't need try/catch since we're testing if the function throws the correct exception
         @test_throws MethodError Hsm.ancestor(sm, Val(:Undefined_State))
