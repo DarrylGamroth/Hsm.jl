@@ -113,6 +113,61 @@ Hsm.jl supports using multiple state machine types in the same Julia session. Ea
 2. **Be consistent**: Either define ALL necessary handlers for your state machines, or define NONE and rely on defaults.
 3. **Document dependencies**: Make it clear in your state machine documentation whether it requires explicit handlers or relies on defaults.
 
+## Error Handling
+
+Hsm.jl includes a comprehensive error handling system with custom exception types to help diagnose issues:
+
+- `HsmMacroError`: Indicates incorrect usage of macros (e.g., using struct instead of mutable struct)
+- `HsmStateError`: Indicates errors related to state definitions or transitions
+- `HsmEventError`: Indicates errors related to event handling
+
+These exception types provide more specific error information than generic errors, making debugging easier.
+
+### Common Errors
+
+- **Non-mutable State Machine**: State machines must be declared with `mutable struct`
+- **Reserved Field Names**: Fields named `_current`, `_source`, and `_event` are reserved
+- **State Argument Format**: State arguments must be of the form `::StateName` or `state::StateName`
+- **Event Argument Format**: Event arguments must be of the form `::EventName` or `event::EventName`
+- **Ancestor Errors**: Undefined state relationships or invalid relationship expressions
+
+### Handling Errors
+
+When using macros that are evaluated at compile time (`@eval`), exceptions will be wrapped in a `LoadError`:
+
+```julia
+try
+    # Your Hsm.jl code here
+catch e
+    # Extract the original exception if it's wrapped in LoadError
+    orig_e = e isa LoadError ? e.error : e
+    
+    if orig_e isa Hsm.HsmStateError
+        println("State error: ", orig_e.msg)
+        # Handle state errors
+    elseif orig_e isa Hsm.HsmEventError
+        println("Event error: ", orig_e.msg)
+        # Handle event errors 
+    elseif orig_e isa Hsm.HsmMacroError
+        println("Macro usage error: ", orig_e.msg)
+        # Handle macro errors
+    else
+        rethrow(e)
+    end
+end
+```
+
+### Undefined State Handling
+
+When accessing an undefined state's ancestor, a descriptive error message is provided:
+
+```julia
+# Will throw HsmStateError with a helpful message
+Hsm.ancestor(sm, Val(:Undefined_State))
+# Error: HsmStateError: No ancestor defined for state Undefined_State in MyStateMachine.
+# Use the @ancestor macro to define state relationships.
+```
+
 ## License
 
 MIT

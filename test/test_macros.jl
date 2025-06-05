@@ -14,17 +14,11 @@ using ValSplit
         sm1 = TestSm(0, "test1")
         @test sm1.counter == 0
         @test sm1.name == "test1"
-        @test sm1._current === :Root
-        @test sm1._source === :Root
-        @test sm1._event === :None
 
         # Test keyword constructor
         sm2 = TestSm(counter=42, name="test2")
         @test sm2.counter == 42
         @test sm2.name == "test2"
-        @test sm2._current === :Root
-        @test sm2._source === :Root
-        @test sm2._event === :None
         
         # Test keyword constructor ordering doesn't matter
         sm2a = TestSm(name="test2a", counter=43)
@@ -37,24 +31,20 @@ using ValSplit
         
         # Test that the struct is mutable
         sm1.counter = 10
-        sm1._current = :State_S1
         @test sm1.counter == 10
-        @test sm1._current === :State_S1
         
         # Test the Hsm interface methods
-        @test Hsm.current(sm1) === :State_S1
-        Hsm.current!(sm1, :State_S2)
-        @test sm1._current === :State_S2
-        @test Hsm.current(sm1) === :State_S2
+        @test Hsm.current(sm1) === :Root
+        Hsm.current!(sm1, :State_S)
+        @test Hsm.current(sm1) === :State_S
         
+        @test Hsm.source(sm1) === :Root
         Hsm.source!(sm1, :State_S)
-        @test sm1._source === :State_S
         @test Hsm.source(sm1) === :State_S
         
         # Test the event interface
         @test Hsm.event(sm1) === :None
         Hsm.event!(sm1, :TestEvent)
-        @test sm1._event === :TestEvent
         @test Hsm.event(sm1) === :TestEvent
     end
 
@@ -102,8 +92,13 @@ using ValSplit
             :State_B => :Root
             :State_A1 => :State_A
         end
-        
+
         # Define event handlers
+        @on_initial function(sm::HandlerTestSm, ::Root)
+            push!(sm.log, "Initial handler for Root")
+            return Hsm.transition!(sm, :State_A)
+        end
+        
         @on_event function(sm::HandlerTestSm, ::State_A, ::Event_X)
             push!(sm.log, "Event_X handled in State_A")
             return Hsm.EventHandled
@@ -129,7 +124,7 @@ using ValSplit
         
         # Create an instance and initialize it
         sm = HandlerTestSm(String[])
-        Hsm.current!(sm, :State_A)
+        @test Hsm.current(sm) === :State_A1
         
         # Test event handler
         Hsm.dispatch!(sm, :Event_X)

@@ -1,9 +1,27 @@
-# This file originally contained helper functions for extracting arguments from macro function definitions.
-# The implementation has been simplified by directly processing arguments within each macro.
+# Custom exception types for better error reporting
+struct HsmMacroError <: Exception
+    msg::String
+end
+Base.showerror(io::IO, e::HsmMacroError) = print(io, "HsmMacroError: ", e.msg)
+
+struct HsmStateError <: Exception
+    msg::String
+end
+Base.showerror(io::IO, e::HsmStateError) = print(io, "HsmStateError: ", e.msg)
+
+struct HsmEventError <: Exception
+    msg::String
+end
+Base.showerror(io::IO, e::HsmEventError) = print(io, "HsmEventError: ", e.msg)
+
+# Helper function to create consistent error messages with source location information
+function format_error_message(error_prefix, message)
+    return "$error_prefix: $message"
+end
 
 # Helper function to process state machine and arguments in a consistent way
 function process_macro_arguments(def, error_prefix, has_event=false)
-    def.head == :function || error("$error_prefix must wrap a function definition")
+    def.head == :function || throw(ArgumentError(format_error_message(error_prefix, "Must wrap a function definition")))
 
     fn_sig = def.args[1]
     body = def.args[2]
@@ -13,7 +31,7 @@ function process_macro_arguments(def, error_prefix, has_event=false)
     min_args = has_event ? 3 : 2
     if length(args) < min_args
         required_args = has_event ? "state machine, state, and event" : "state machine and state"
-        error("$error_prefix: Function definition requires at least $min_args arguments: $required_args")
+        throw(ArgumentError(format_error_message(error_prefix, "Function definition requires at least $min_args arguments: $required_args")))
     end
 
     # Extract arguments
@@ -30,7 +48,7 @@ function process_macro_arguments(def, error_prefix, has_event=false)
         smarg = sm_arg.args[1]
         smtype = sm_arg.args[2]
     else
-        error("$error_prefix: Unexpected argument form for state machine parameter")
+        throw(ArgumentError(format_error_message(error_prefix, "Unexpected argument form for state machine parameter. Expected a symbol or typed parameter (e.g., sm or sm::MyStateMachine)")))
     end
 
     # Process arguments
@@ -38,7 +56,7 @@ function process_macro_arguments(def, error_prefix, has_event=false)
     injected = Expr[]
 
     # Process state argument
-    state_args, state_injected = process_state_argument(state_arg, error_prefix)
+    state_args, state_injected, is_any_state, state_name = process_state_argument(state_arg, error_prefix)
     append!(new_args, state_args)
     append!(injected, state_injected)
 
@@ -70,22 +88,43 @@ function process_macro_arguments(def, error_prefix, has_event=false)
     pushfirst!(new_args, Expr(:(::), smarg, smtype))
 
     # Return collected results
-    return (smarg, smtype, body, new_args, injected, event_arg, data_arg, is_any_event, event_name)
+    return (smarg, smtype, body, new_args, injected, event_arg, data_arg, is_any_event, event_name, is_any_state, state_name)
 end
 
 # Helper function to generate a consistent implementation for state handlers
-function generate_state_handler_impl(handler_name, smarg, smtype, state_arg, full_body)
+function generate_state_handler_impl(handler_name, smarg, smtype, state_arg, full_body, is_any_state, state_name)
     # Use module and function name separately to avoid creating var"Hsm.handler_name!"
     mod = :Hsm
     func = Symbol(string(handler_name) * "!")
-    
-    return quote
-        @eval begin
-            function $mod.$func(
-                $smarg::$smtype,
-                $state_arg
-            )
-                $full_body
+
+    if is_any_state
+        # Special case for Any state - use ValSplit macro
+        return quote
+            @eval begin
+                ValSplit.@valsplit function $mod.$func(
+                    $smarg::$smtype,
+                    Val($(state_name)::Symbol)
+                )
+                    $full_body
+                end
+
+                function $mod.$func(
+                    $smarg::$smtype,
+                    ::Val{$(QuoteNode(gensym("Any")))}
+                )
+                end
+            end
+        end
+    else
+        # Normal case - specific state type
+        return quote
+            @eval begin
+                function $mod.$func(
+                    $smarg::$smtype,
+                    $state_arg
+                )
+                    $full_body
+                end
             end
         end
     end
@@ -113,7 +152,7 @@ function generate_event_handler_impl(smarg, smtype, new_args, full_body, is_any_
                     $(new_args[4])
                 )
                     return Hsm.EventNotHandled
-                end                
+                end
             end
         end
     else
@@ -138,7 +177,7 @@ function process_event_argument(event_arg, error_prefix)
     new_args = Expr[]
     injected = Expr[]
     is_any_event = false
-    
+
     if event_arg isa Expr && event_arg.head == :(::)
         # Extract event type and decide if it needs a name
         event_type = if length(event_arg.args) == 1
@@ -156,7 +195,7 @@ function process_event_argument(event_arg, error_prefix)
         # Special case for Any event type - use ValSplit
         if event_type == :Any
             if !has_name
-                error("$error_prefix: When using ::Any for event type, you must provide a named parameter (e.g., event::Any) to access the event value")
+                throw(ArgumentError("$error_prefix: When using ::Any for event type, you must provide a named parameter (e.g., event::Any) to access the event value"))
             end
             is_any_event = true
             push!(new_args, Expr(:(::), event_name, :Val))
@@ -169,7 +208,7 @@ function process_event_argument(event_arg, error_prefix)
             push!(injected, :($event_name = $event_sym))
         end
     else
-        error("$error_prefix: Event argument must be of the form ::EventType or event::EventType")
+        throw(ArgumentError("$error_prefix: Event argument must be of the form ::EventType or event::EventType"))
     end
 
     return new_args, injected, is_any_event, event_name
@@ -179,6 +218,7 @@ end
 function process_state_argument(state_arg, error_prefix)
     new_args = Expr[]
     injected = Expr[]
+    is_any_state = false
 
     if state_arg isa Expr && state_arg.head == :(::)
         # Extract state type and decide if it needs a name
@@ -194,16 +234,26 @@ function process_state_argument(state_arg, error_prefix)
         # Create a name if it's anonymous - this simplifies the logic
         state_name = has_name ? state_arg.args[1] : gensym("state")
 
-        state_sym = QuoteNode(Symbol(state_type))
-        push!(new_args, Expr(:(::), state_name, Expr(:curly, :Val, state_sym)))
+        # Special case for Any state type - use ValSplit
+        if state_type == :Any
+            if !has_name
+                throw(ArgumentError("$error_prefix: When using ::Any for state type, you must provide a named parameter (e.g., state::Any) to access the state value"))
+            end
+            is_any_state = true
+            push!(new_args, Expr(:(::), state_name, :Val))
+        else
+            is_any_state = false
+            state_sym = QuoteNode(Symbol(state_type))
+            push!(new_args, Expr(:(::), state_name, Expr(:curly, :Val, state_sym)))
 
-        # Always inject the state name assignment for consistency
-        push!(injected, :($state_name = $state_sym))
+            # Always inject the state name assignment for consistency
+            push!(injected, :($state_name = $state_sym))
+        end
     else
-        error("$error_prefix: State argument must be of the form ::StateType or state::StateType")
+        throw(ArgumentError("$error_prefix: State argument must be of the form ::StateType or state::StateType"))
     end
 
-    return new_args, injected
+    return new_args, injected, is_any_state, state_name
 end
 
 """
@@ -245,13 +295,13 @@ macro ancestor(args...)
     source_info = "line $line in $file"
 
     if length(args) != 2
-        error("@ancestor (at $(source_info)): Expected exactly two arguments: state machine type and state relationships")
+        throw(ArgumentError("@ancestor (at $(source_info)): Expected exactly two arguments: state machine type and state relationships"))
     end
 
     smtype, pair = args
 
     if !(pair isa Expr)
-        error("@ancestor (at $(source_info)): Second argument must be an expression with => or a begin...end block")
+        throw(ArgumentError("@ancestor (at $(source_info)): Second argument must be an expression with => or a begin...end block"))
     end
 
     if pair.head == :block
@@ -259,25 +309,31 @@ macro ancestor(args...)
         for stmt in pair.args
             if stmt isa Expr && stmt.head == :call && stmt.args[1] === Symbol("=>")
                 if length(stmt.args) != 3
-                    error("@ancestor (at $(source_info)): Invalid relationship expression. Use format: child => parent")
+                    throw(ArgumentError("@ancestor (at $(source_info)): Invalid relationship expression. Use format: child => parent"))
                 end
+
+                # Check for nested relation which isn't allowed
+                if stmt.args[3] isa Expr && stmt.args[3].head == :call && stmt.args[3].args[1] === Symbol("=>")
+                    throw(ArgumentError("@ancestor (at $(source_info)): Invalid relationship expression. Nested relations like 'a => b => c' are not allowed."))
+                end
+
                 child = stmt.args[2]
                 parent = stmt.args[3]
                 push!(exs, :(Hsm.ancestor(::$(esc(smtype)), ::$(esc(:Val)){$child}) = $(parent)))
             elseif !(stmt isa LineNumberNode)
-                error("@ancestor (at $(source_info)): Invalid statement in block. Expected format: child => parent")
+                throw(HsmStateError("@ancestor (at $(source_info)): Invalid statement in block. Expected format: child => parent"))
             end
         end
         return Expr(:block, exs...)
     elseif pair.head == :call && pair.args[1] === Symbol("=>")
         if length(pair.args) != 3
-            error("@ancestor (at $(source_info)): Invalid relationship expression. Use format: child => parent")
+            throw(HsmStateError("@ancestor (at $(source_info)): Invalid relationship expression. Use format: child => parent"))
         end
         child = pair.args[2]
         parent = pair.args[3]
         return :(Hsm.ancestor(::$(esc(smtype)), ::$(esc(:Val)){$child}) = $(parent))
     else
-        error("@ancestor (at $(source_info)): Expected => operator or begin...end block with relationships")
+        throw(HsmStateError("@ancestor (at $(source_info)): Expected => operator or begin...end block with relationships"))
     end
 end
 
@@ -332,7 +388,7 @@ macro on_event(def)
     error_prefix = "@on_event (line $line in $file)"
 
     # Process all arguments with helper function
-    smarg, smtype, body, new_args, injected, _, _, is_any_event, event_name = process_macro_arguments(def, error_prefix, true)
+    smarg, smtype, body, new_args, injected, _, _, is_any_event, event_name, _, _ = process_macro_arguments(def, error_prefix, true)
 
     # Construct the full function body with any injected parameter transformations
     full_body = isempty(injected) ? body : Expr(:block, injected..., body)
@@ -384,13 +440,13 @@ macro on_initial(def)
     error_prefix = "@on_initial (line $line in $file)"
 
     # Process all arguments with helper function
-    smarg, smtype, body, new_args, injected, _, _ = process_macro_arguments(def, error_prefix)
+    smarg, smtype, body, new_args, injected, _, _, _, _, is_any_state, state_name = process_macro_arguments(def, error_prefix)
 
     # Construct the full function body with any injected parameter transformations
     full_body = isempty(injected) ? body : Expr(:block, injected..., body)
 
     # Use helper function to generate the handler implementation
-    return generate_state_handler_impl(:on_initial, smarg, smtype, new_args[2], full_body)
+    return generate_state_handler_impl(:on_initial, smarg, smtype, new_args[2], full_body, is_any_state, state_name)
 end
 
 """
@@ -424,15 +480,15 @@ macro on_entry(def)
     line = __source__.line
     file = String(__source__.file)
     error_prefix = "@on_entry (line $line in $file)"
-    
+
     # Process all arguments with helper function
-    smarg, smtype, body, new_args, injected, _, _ = process_macro_arguments(def, error_prefix)
+    smarg, smtype, body, new_args, injected, _, _, _, _, is_any_state, state_name = process_macro_arguments(def, error_prefix)
 
     # Construct the full function body with any injected parameter transformations
     full_body = isempty(injected) ? body : Expr(:block, injected..., body)
 
     # Use helper function to generate the handler implementation
-    return generate_state_handler_impl(:on_entry, smarg, smtype, new_args[2], full_body)
+    return generate_state_handler_impl(:on_entry, smarg, smtype, new_args[2], full_body, is_any_state, state_name)
 end
 
 """
@@ -468,13 +524,13 @@ macro on_exit(def)
     error_prefix = "@on_exit (line $line in $file)"
 
     # Process all arguments with helper function
-    smarg, smtype, body, new_args, injected, _, _ = process_macro_arguments(def, error_prefix)
+    smarg, smtype, body, new_args, injected, _, _, _, _, is_any_state, state_name = process_macro_arguments(def, error_prefix)
 
     # Construct the full function body with any injected parameter transformations
     full_body = isempty(injected) ? body : Expr(:block, injected..., body)
 
     # Use helper function to generate the handler implementation
-    return generate_state_handler_impl(:on_exit, smarg, smtype, new_args[2], full_body)
+    return generate_state_handler_impl(:on_exit, smarg, smtype, new_args[2], full_body, is_any_state, state_name)
 end
 
 """
@@ -527,14 +583,14 @@ macro hsmdef(struct_expr)
 
     # Only allow direct struct definitions (no macrocall wrappers)
     if struct_expr.head != :struct
-        error("@hsmdef (at $(source_info)): Must be the outermost macro and applied directly to a struct definition.")
+        throw(HsmMacroError("@hsmdef (at $(source_info)): Must be the outermost macro and applied directly to a struct definition."))
     end
 
     # Extract struct name and body
     mutable_flag = struct_expr.args[1]
     # Check if the struct is explicitly declared as mutable
     if !mutable_flag
-        error("@hsmdef (at $(source_info)): State machine structs must be explicitly declared as mutable. Use `mutable struct` instead of `struct`.")
+        throw(HsmMacroError("@hsmdef (at $(source_info)): State machine structs must be explicitly declared as mutable. Use `mutable struct` instead of `struct`."))
     end
     struct_name = struct_expr.args[2]
     struct_body = struct_expr.args[3]
@@ -547,23 +603,17 @@ macro hsmdef(struct_expr)
         end
     end
 
-    # Check for reserved field names
-    if any(x -> (x == :_current) || (x isa Expr && x.args[1] == :_current), fields)
-        error("@hsmdef (at $(source_info)): The field name '_current' is reserved and cannot be used in your struct.")
-    end
-    if any(x -> (x == :_source) || (x isa Expr && x.args[1] == :_source), fields)
-        error("@hsmdef (at $(source_info)): The field name '_source' is reserved and cannot be used in your struct.")
-    end
-    if any(x -> (x == :_event) || (x isa Expr && x.args[1] == :_event), fields)
-        error("@hsmdef (at $(source_info)): The field name '_event' is reserved and cannot be used in your struct.")
-    end
+    # Create unique internal field names using gensym
+    current_field = gensym("current")
+    source_field = gensym("source")
+    event_field = gensym("event")
 
-    # Add _current, _source, and _event fields
-    push!(fields, :(_current::Symbol))
-    push!(fields, :(_source::Symbol))
-    push!(fields, :(_event::Symbol))
+    # Add internal fields with unique generated names
+    push!(fields, Expr(:(::), current_field, :Symbol))
+    push!(fields, Expr(:(::), source_field, :Symbol))
+    push!(fields, Expr(:(::), event_field, :Symbol))
 
-    # Calculate number of user fields (without _current, _source, and _event)
+    # Calculate number of user fields (without internal state machine fields)
     num_user_fields = length(fields) - 3
 
     # Add an internal constructor to initialize the state machine
@@ -594,7 +644,7 @@ macro hsmdef(struct_expr)
 
         # Add keyword constructor for named parameters
         function $(esc(struct_name))(; kwargs...)
-            # Extract field names (excluding reserved fields)
+            # Extract field names (excluding internal fields)
             field_symbols = $(Expr(:vect, [x isa Symbol ? QuoteNode(x) : QuoteNode(x.args[1]) for x in fields[1:num_user_fields]]...))
 
             # Collect arguments in the correct order
@@ -617,14 +667,13 @@ macro hsmdef(struct_expr)
 
         # Use @eval to properly create the handlers with the correct scope
         @eval begin
-            # Implement the Hsm interface methods
-
-            Hsm.current(sm::$(struct_name)) = sm._current
-            Hsm.current!(sm::$(struct_name), state::Symbol) = sm._current = state
-            Hsm.source(sm::$(struct_name)) = sm._source
-            Hsm.source!(sm::$(struct_name), state::Symbol) = sm._source = state
-            Hsm.event(sm::$(struct_name)) = sm._event
-            Hsm.event!(sm::$(struct_name), event::Symbol) = sm._event = event
+            # Implement the Hsm interface methods with the generated field names
+            Hsm.current(sm::$(struct_name)) = getfield(sm, $(QuoteNode(current_field)))
+            Hsm.current!(sm::$(struct_name), state::Symbol) = setfield!(sm, $(QuoteNode(current_field)), state)
+            Hsm.source(sm::$(struct_name)) = getfield(sm, $(QuoteNode(source_field)))
+            Hsm.source!(sm::$(struct_name), state::Symbol) = setfield!(sm, $(QuoteNode(source_field)), state)
+            Hsm.event(sm::$(struct_name)) = getfield(sm, $(QuoteNode(event_field)))
+            Hsm.event!(sm::$(struct_name), event::Symbol) = setfield!(sm, $(QuoteNode(event_field)), event)
 
             # Default initial handler (returns EventHandled)
             ValSplit.@valsplit Hsm.on_initial!(sm::$(struct_name), Val(state::Symbol)) = Hsm.EventHandled
@@ -648,8 +697,8 @@ macro hsmdef(struct_expr)
                 sm::$(struct_name),
                 Val(state::Symbol)
             )
-                error("No ancestor for state \$state in $($(struct_name))")
-                return :Root
+                throw(HsmStateError("No ancestor defined for state $(state) in $($(struct_name)). Use the @ancestor macro to define state relationships."))
+                return :Root  # For type-stability, return :Root for unknown states
             end
 
             # Special case: Root state's ancestor is Root itself

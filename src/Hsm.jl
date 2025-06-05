@@ -10,6 +10,7 @@ export current, current!, source, source!, event, event!, ancestor
 export on_initial!, on_entry!, on_exit!, on_event!
 export transition!, dispatch!
 export @on_event, @on_initial, @ancestor, @on_entry, @on_exit, @hsmdef
+export HsmMacroError, HsmStateError, HsmEventError
 
 """
     EventReturn
