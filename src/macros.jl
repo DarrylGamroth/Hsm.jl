@@ -101,17 +101,6 @@ function generate_state_handler_impl(handler_name, smarg, smtype, state_arg, ful
         # Special case for Any state - use ValSplit macro
         return quote
             @eval begin
-                # This function provides the catch-all Any state handler
-                # It should only be called when no specific handler is found
-                function $mod.$func(
-                    $smarg::$smtype,
-                    val::Val{S}
-                ) where {S}
-                    # Call the generated handler with the state symbol as parameter
-                    # This is preferred over hard-coding a fallback function
-                    $mod.$func($smarg, Val(Symbol(S)))
-                end
-
                 # Define the actual generic handler that accepts a state symbol
                 ValSplit.@valsplit function $mod.$func(
                     $smarg::$smtype,
