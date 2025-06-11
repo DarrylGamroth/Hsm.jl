@@ -332,8 +332,10 @@ import Hsm: process_macro_arguments, process_state_argument, process_event_argum
             full_body = :(println("Handling EventE"); return Hsm.EventHandled)
             is_any_event = false
             event_name = :e
+            is_any_state = false
+            state_name = :s
 
-            handler_impl = generate_event_handler_impl(smarg, smtype, new_args, full_body, is_any_event, event_name)
+            handler_impl = generate_event_handler_impl(smarg, smtype, new_args, full_body, is_any_event, event_name, is_any_state, state_name)
 
             # Since implementation details might change, only test that we get a valid Expr back
             @test isa(handler_impl, Expr)
@@ -361,8 +363,10 @@ import Hsm: process_macro_arguments, process_state_argument, process_event_argum
             full_body = :(println("Handling any event"); return Hsm.EventHandled)
             is_any_event = true
             event_name = :event
+            is_any_state = false
+            state_name = :s
 
-            handler_impl = generate_event_handler_impl(smarg, smtype, new_args, full_body, is_any_event, event_name)
+            handler_impl = generate_event_handler_impl(smarg, smtype, new_args, full_body, is_any_event, event_name, is_any_state, state_name)
 
             # Since implementation details might change, only test that we get a valid Expr back
             @test isa(handler_impl, Expr)

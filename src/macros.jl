@@ -71,7 +71,7 @@ function process_macro_arguments(def, error_prefix, has_event=false)
 
     # Process data argument
     if has_event
-        if data_arg isa Symbol && startswith(String(data_arg), "#unused")
+        if data_arg isa Symbol && startswith(string(data_arg), "#unused")
             # Case: not present - create an unused parameter expression with gensym
             push!(new_args, Expr(:(::), data_arg, :Any))
         elseif data_arg isa Expr && data_arg.head == :(::)
@@ -137,42 +137,68 @@ function generate_state_handler_impl(handler_name, smarg, smtype, state_arg, ful
 end
 
 # Helper function to generate consistent implementation for event handlers
-function generate_event_handler_impl(smarg, smtype, new_args, full_body, is_any_event, event_name)
+function generate_event_handler_impl(smarg, smtype, new_args, full_body, is_any_event, event_name, is_any_state, state_name)
     if is_any_event
-        # Special case for Any event - use ValSplit macro
-        return quote
-            @eval begin
-                ValSplit.@valsplit function Hsm.on_event!(
-                    $smarg::$smtype,
-                    $(new_args[2]),
-                    Val($(event_name)::Symbol),
-                    $(new_args[4])
-                )
-                    $full_body
-                end
+        return _generate_any_event_handler(smarg, smtype, new_args, full_body, event_name, is_any_state, state_name)
+    else
+        return _generate_specific_event_handler(smarg, smtype, new_args, full_body)
+    end
+end
 
-                function Hsm.on_event!(
-                    $smarg::$smtype,
-                    $(new_args[2]),
-                    ::Val{$(QuoteNode(gensym("Any")))},
-                    $(new_args[4])
-                )
-                    return Hsm.EventNotHandled
-                end
+# Generate handler for Any event types using ValSplit macro
+function _generate_any_event_handler(smarg, smtype, new_args, full_body, event_name, is_any_state, state_name)
+    # Determine the state argument type for ValSplit dispatch
+    state_arg = if is_any_state
+        # Both state and event are Any - need Val() wrapping for both
+        :(Val($(state_name)::Symbol))
+    else
+        # Only event is Any, state is specific
+        new_args[2]
+    end
+
+    # Generate the default catch-all state argument for the fallback handler
+    default_state_arg = if is_any_state
+        :(::Val{$(QuoteNode(gensym("Any")))})
+    else
+        new_args[2]
+    end
+
+    return quote
+        @eval begin
+            # Main ValSplit handler for dynamic event dispatch
+            ValSplit.@valsplit function Hsm.on_event!(
+                $smarg::$smtype,
+                $(state_arg),
+                Val($(event_name)::Symbol),
+                $(new_args[4])
+            )
+                $full_body
+            end
+
+            # Fallback handler that returns EventNotHandled for unhandled events
+            function Hsm.on_event!(
+                $smarg::$smtype,
+                $(default_state_arg),
+                ::Val{$(QuoteNode(gensym("Any")))},
+                $(new_args[4])
+            )
+                return Hsm.EventNotHandled
             end
         end
-    else
-        # Normal case - specific event type
-        return quote
-            @eval begin
-                function Hsm.on_event!(
-                    $smarg::$smtype,
-                    $(new_args[2]),
-                    $(new_args[3]),
-                    $(new_args[4])
-                )
-                    $full_body
-                end
+    end
+end
+
+# Generate handler for specific event types
+function _generate_specific_event_handler(smarg, smtype, new_args, full_body)
+    return quote
+        @eval begin
+            function Hsm.on_event!(
+                $smarg::$smtype,
+                $(new_args[2]),
+                $(new_args[3]),
+                $(new_args[4])
+            )
+                $full_body
             end
         end
     end
@@ -394,14 +420,14 @@ macro on_event(def)
     error_prefix = "@on_event (line $line in $file)"
 
     # Process all arguments with helper function
-    smarg, smtype, body, new_args, injected, _, _, is_any_event, event_name, _, _ = process_macro_arguments(def, error_prefix, true)
+    smarg, smtype, body, new_args, injected, _, _, is_any_event, event_name, is_any_state, state_name = process_macro_arguments(def, error_prefix, true)
 
     # Construct the full function body with any injected parameter transformations
     full_body = isempty(injected) ? body : Expr(:block, injected..., body)
 
     # Generate the final function using a quote block with @eval for proper hygiene
     # This ensures correct handling of variables from the caller's context
-    return generate_event_handler_impl(smarg, smtype, new_args, full_body, is_any_event, event_name)
+    return generate_event_handler_impl(smarg, smtype, new_args, full_body, is_any_event, event_name, is_any_state, state_name)
 end
 
 """
@@ -732,7 +758,7 @@ macro hsmdef(struct_expr)
                 sm::$(struct_name),
                 Val(state::Symbol)
             )
-                throw(HsmStateError("No ancestor defined for state $(state) in $($(struct_name)). Use the @ancestor macro to define state relationships."))
+                throw(HsmStateError("No ancestor defined for state \$(state) in $($(struct_name)). Use the @ancestor macro to define state relationships."))
                 return :Root  # For type-stability, return :Root for unknown states
             end
 
