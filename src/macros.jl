@@ -25,7 +25,25 @@ function process_macro_arguments(def, error_prefix, has_event=false)
 
     fn_sig = def.args[1]
     body = def.args[2]
-    args = fn_sig.args
+    
+    # Handle where clauses
+    where_clauses = []  # Always use an array for consistency
+    if fn_sig.head == :where
+        # Extract all where clause parameters
+        push!(where_clauses, fn_sig.args[2])
+        fn_sig = fn_sig.args[1]  # Get the actual function signature
+    end
+    
+    # Extract arguments based on function signature type
+    if fn_sig.head == :call
+        # Normal function: f(args...) - skip function name
+        args = fn_sig.args[2:end]
+    elseif fn_sig.head == :tuple
+        # Anonymous function with where clause: (args...)
+        args = fn_sig.args
+    else
+        throw(ArgumentError(format_error_message(error_prefix, "Unexpected function signature format")))
+    end
 
     # Validate argument count
     min_args = has_event ? 3 : 2
@@ -88,7 +106,7 @@ function process_macro_arguments(def, error_prefix, has_event=false)
     pushfirst!(new_args, Expr(:(::), smarg, smtype))
 
     # Return collected results
-    return (smarg, smtype, body, new_args, injected, event_arg, data_arg, is_any_event, event_name, is_any_state, state_name)
+    return (smarg, smtype, body, new_args, injected, event_arg, data_arg, is_any_event, event_name, is_any_state, state_name, where_clauses)
 end
 
 # Helper function to generate a consistent implementation for state handlers
@@ -126,16 +144,16 @@ function generate_state_handler_impl(handler_name, smarg, smtype, state_arg, ful
 end
 
 # Helper function to generate consistent implementation for event handlers
-function generate_event_handler_impl(smarg, smtype, new_args, full_body, is_any_event, event_name, is_any_state, state_name)
+function generate_event_handler_impl(smarg, smtype, new_args, full_body, is_any_event, event_name, is_any_state, state_name, method_where_clause)
     if is_any_event
-        return _generate_any_event_handler(smarg, smtype, new_args, full_body, event_name, is_any_state, state_name)
+        return _generate_any_event_handler(smarg, smtype, new_args, full_body, event_name, is_any_state, state_name, method_where_clause)
     else
-        return _generate_specific_event_handler(smarg, smtype, new_args, full_body)
+        return _generate_specific_event_handler(smarg, smtype, new_args, full_body, method_where_clause)
     end
 end
 
 # Generate handler for Any event types using ValSplit macro
-function _generate_any_event_handler(smarg, smtype, new_args, full_body, event_name, is_any_state, state_name)
+function _generate_any_event_handler(smarg, smtype, new_args, full_body, event_name, is_any_state, state_name, method_where_clause)
     # Determine the state argument type for ValSplit dispatch
     state_arg = if is_any_state
         # Both state and event are Any - need Val() wrapping for both
@@ -155,41 +173,105 @@ function _generate_any_event_handler(smarg, smtype, new_args, full_body, event_n
     return quote
         @eval begin
             # Main ValSplit handler for dynamic event dispatch
-            ValSplit.@valsplit function Hsm.on_event!(
-                $smarg::$smtype,
-                $(state_arg),
-                Val($(event_name)::Symbol),
-                $(new_args[4])
-            )
-                $full_body
-            end
+            $(if method_where_clause !== nothing
+                # Construct function expression with where clause
+                let 
+                    where_args = if method_where_clause isa Array
+                        method_where_clause  # It's already an array
+                    else
+                        [method_where_clause]  # Single expression, wrap in array
+                    end
+                    
+                    func_expr = Expr(:function,
+                         Expr(:where,
+                              Expr(:call, :(Hsm.on_event!),
+                                   Expr(:(::), smarg, smtype),
+                                   state_arg,
+                                   :(Val($(event_name)::Symbol)),
+                                   new_args[4]),
+                              where_args...),
+                         full_body)
+                    :(ValSplit.@valsplit $func_expr)
+                end
+            else
+                quote
+                    ValSplit.@valsplit function Hsm.on_event!(
+                        $smarg::$smtype,
+                        $(state_arg),
+                        Val($(event_name)::Symbol),
+                        $(new_args[4])
+                    )
+                        $full_body
+                    end
+                end
+            end)
 
             # Fallback handler that returns EventNotHandled for unhandled events
-            function Hsm.on_event!(
-                $smarg::$smtype,
-                $(default_state_arg),
-                ::Val{$(QuoteNode(gensym("Any")))},
-                $(new_args[4])
-            )
-                return Hsm.EventNotHandled
-            end
+            $(if method_where_clause !== nothing
+                # Construct function expression with where clause
+                let 
+                    where_args = if method_where_clause isa Array
+                        method_where_clause  # It's already an array
+                    else
+                        [method_where_clause]  # Single expression, wrap in array
+                    end
+                    
+                    func_expr = Expr(:function,
+                         Expr(:where,
+                              Expr(:call, :(Hsm.on_event!),
+                                   Expr(:(::), smarg, smtype),
+                                   default_state_arg,
+                                   :(::Val{$(QuoteNode(gensym("Any")))}),
+                                   new_args[4]),
+                              where_args...),
+                         :(return Hsm.EventNotHandled))
+                    func_expr
+                end
+            else
+                quote
+                    function Hsm.on_event!(
+                        $smarg::$smtype,
+                        $(default_state_arg),
+                        ::Val{$(QuoteNode(gensym("Any")))},
+                        $(new_args[4])
+                    )
+                        return Hsm.EventNotHandled
+                    end
+                end
+            end)
         end
     end
 end
 
 # Generate handler for specific event types
-function _generate_specific_event_handler(smarg, smtype, new_args, full_body)
-    return quote
-        @eval begin
-            function Hsm.on_event!(
-                $smarg::$smtype,
-                $(new_args[2]),
-                $(new_args[3]),
-                $(new_args[4])
-            )
-                $full_body
-            end
+function _generate_specific_event_handler(smarg, smtype, new_args, full_body, method_where_clause)
+    # Construct the complete function expression
+    func_expr = if method_where_clause !== nothing
+        # With where clause - handle different forms of where clause
+        where_args = if method_where_clause isa Array
+            method_where_clause  # It's already an array
+        else
+            [method_where_clause]  # Single expression, wrap in array
         end
+        
+        Expr(:function,
+             Expr(:where, 
+                  Expr(:call, :(Hsm.on_event!), 
+                       Expr(:(::), smarg, smtype),
+                       new_args[2], new_args[3], new_args[4]),
+                  where_args...),
+             full_body)
+    else
+        # Without where clause
+        Expr(:function,
+             Expr(:call, :(Hsm.on_event!), 
+                  Expr(:(::), smarg, smtype),
+                  new_args[2], new_args[3], new_args[4]),
+             full_body)
+    end
+    
+    return quote
+        @eval $func_expr
     end
 end
 
@@ -225,8 +307,11 @@ function process_event_argument(event_arg, error_prefix)
             event_sym = QuoteNode(Symbol(event_type))
             push!(new_args, Expr(:(::), event_name, Expr(:curly, :Val, event_sym)))
 
-            # Always inject the event name assignment for consistency
-            push!(injected, :($event_name = $event_sym))
+            # Only inject the event name assignment if this is a named parameter
+            # This avoids creating unnecessary assignments for anonymous parameters
+            if has_name
+                push!(injected, :($event_name = $event_sym))
+            end
         end
     else
         throw(ArgumentError("$error_prefix: Event argument must be of the form ::EventType or event::EventType"))
@@ -267,8 +352,11 @@ function process_state_argument(state_arg, error_prefix)
             state_sym = QuoteNode(Symbol(state_type))
             push!(new_args, Expr(:(::), state_name, Expr(:curly, :Val, state_sym)))
 
-            # Always inject the state name assignment for consistency
-            push!(injected, :($state_name = $state_sym))
+            # Only inject the state name assignment if this is a named parameter
+            # This avoids creating unnecessary assignments for anonymous parameters
+            if has_name
+                push!(injected, :($state_name = $state_sym))
+            end
         end
     else
         throw(ArgumentError("$error_prefix: State argument must be of the form ::StateType or state::StateType"))
@@ -409,14 +497,23 @@ macro on_event(def)
     error_prefix = "@on_event (line $line in $file)"
 
     # Process all arguments with helper function
-    smarg, smtype, body, new_args, injected, _, _, is_any_event, event_name, is_any_state, state_name = process_macro_arguments(def, error_prefix, true)
+    smarg, smtype, body, new_args, injected, _, _, is_any_event, event_name, is_any_state, state_name, where_clauses = process_macro_arguments(def, error_prefix, true)
+
+    # Create where clause for method generation
+    method_where_clause = if !isempty(where_clauses)
+        # User provided where clause, use the array directly
+        where_clauses
+    else
+        # No user where clause, don't add one
+        nothing
+    end
 
     # Construct the full function body with any injected parameter transformations
     full_body = isempty(injected) ? body : Expr(:block, injected..., body)
 
     # Generate the final function using a quote block with @eval for proper hygiene
     # This ensures correct handling of variables from the caller's context
-    return generate_event_handler_impl(smarg, smtype, new_args, full_body, is_any_event, event_name, is_any_state, state_name)
+    return generate_event_handler_impl(smarg, smtype, new_args, full_body, is_any_event, event_name, is_any_state, state_name, method_where_clause)
 end
 
 """
@@ -461,7 +558,7 @@ macro on_initial(def)
     error_prefix = "@on_initial (line $line in $file)"
 
     # Process all arguments with helper function
-    smarg, smtype, body, new_args, injected, _, _, _, _, is_any_state, state_name = process_macro_arguments(def, error_prefix)
+    smarg, smtype, body, new_args, injected, _, _, _, _, is_any_state, state_name, where_clauses = process_macro_arguments(def, error_prefix)
 
     # Construct the full function body with any injected parameter transformations
     full_body = isempty(injected) ? body : Expr(:block, injected..., body)
@@ -514,7 +611,7 @@ macro on_entry(def)
     error_prefix = "@on_entry (line $line in $file)"
 
     # Process all arguments with helper function
-    smarg, smtype, body, new_args, injected, _, _, _, _, is_any_state, state_name = process_macro_arguments(def, error_prefix)
+    smarg, smtype, body, new_args, injected, _, _, _, _, is_any_state, state_name, where_clauses = process_macro_arguments(def, error_prefix)
 
     # Construct the full function body with any injected parameter transformations
     full_body = isempty(injected) ? body : Expr(:block, injected..., body)
@@ -574,7 +671,7 @@ macro on_exit(def)
     error_prefix = "@on_exit (line $line in $file)"
 
     # Process all arguments with helper function
-    smarg, smtype, body, new_args, injected, _, _, _, _, is_any_state, state_name = process_macro_arguments(def, error_prefix)
+    smarg, smtype, body, new_args, injected, _, _, _, _, is_any_state, state_name, where_clauses = process_macro_arguments(def, error_prefix)
 
     # Construct the full function body with any injected parameter transformations
     full_body = isempty(injected) ? body : Expr(:block, injected..., body)
@@ -592,7 +689,7 @@ end
 
 A macro that adds the necessary fields to a struct to make it a proper
 hierarchical state machine. It adds `_current`, `_source`, and `_event` fields and implements the
-required methods for `Hsm.current`, `Hsm.current!`, `Hsm.source`, `Hsm.source!`, `Hsm.event`, and `Hsm.event!`.
+required methods for `Hsm.current`, `Hsm.current!`, `Hsm.source`, and `Hsm.source!`.
 
 # Features
 - Adds `_current`, `_source`, and `_event` fields automatically (initialized to `:Root` and `:None` for event)
@@ -656,21 +753,19 @@ macro hsmdef(struct_expr)
     # Create unique internal field names using gensym
     current_field = gensym("current")
     source_field = gensym("source")
-    event_field = gensym("event")
 
     # Add internal fields with unique generated names
     push!(fields, Expr(:(::), current_field, :Symbol))
     push!(fields, Expr(:(::), source_field, :Symbol))
-    push!(fields, Expr(:(::), event_field, :Symbol))
 
     # Calculate number of user fields (without internal state machine fields)
-    num_user_fields = length(fields) - 3
+    num_user_fields = length(fields) - 2
 
     # Add an internal constructor to initialize the state machine
     internal_constructor = quote
-        function $(struct_name)(current, source, event, args::Vararg{Any,$num_user_fields})
+        function $(struct_name)(current, source, args::Vararg{Any,$num_user_fields})
             # Ensure the correct number of arguments
-            sm = new(args..., current, source, event)
+            sm = new(args..., current, source)
 
             # Call on_initial! to properly initialize the state machine
             Hsm.on_initial!(sm, :Root)
@@ -689,7 +784,7 @@ macro hsmdef(struct_expr)
         $(esc(new_struct_def))
 
         function $(esc(struct_name))(args::Vararg{Any,$num_user_fields})
-            return $(esc(struct_name))(:Root, :Root, :None, args...)
+            return $(esc(struct_name))(:Root, :Root, args...)
         end
 
         # Add keyword constructor for named parameters
@@ -708,7 +803,7 @@ macro hsmdef(struct_expr)
             end
 
             # Create the instance which will call the internal constructor
-            return $(esc(struct_name))(:Root, :Root, :None, args...)
+            return $(esc(struct_name))(:Root, :Root, args...)
         end
 
         # Add default state machine handlers with type-specific dispatch
@@ -722,8 +817,6 @@ macro hsmdef(struct_expr)
             Hsm.current!(sm::$(struct_name), state::Symbol) = setfield!(sm, $(QuoteNode(current_field)), state)
             Hsm.source(sm::$(struct_name)) = getfield(sm, $(QuoteNode(source_field)))
             Hsm.source!(sm::$(struct_name), state::Symbol) = setfield!(sm, $(QuoteNode(source_field)), state)
-            Hsm.event(sm::$(struct_name)) = getfield(sm, $(QuoteNode(event_field)))
-            Hsm.event!(sm::$(struct_name), event::Symbol) = setfield!(sm, $(QuoteNode(event_field)), event)
 
             # Default initial handler (returns EventHandled)
             ValSplit.@valsplit Hsm.on_initial!(sm::$(struct_name), Val(state::Symbol)) = Hsm.EventHandled
@@ -739,8 +832,8 @@ macro hsmdef(struct_expr)
                 sm::$(struct_name),
                 Val(state::Symbol),
                 Val(event::Symbol),
-                arg
-            ) = Hsm.EventNotHandled
+                arg::T
+            ) where {T} = Hsm.EventNotHandled
 
             # Default ancestor method with error for undefined states
             ValSplit.@valsplit function Hsm.ancestor(

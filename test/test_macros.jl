@@ -41,11 +41,6 @@ using ValSplit
         @test Hsm.source(sm1) === :Root
         Hsm.source!(sm1, :State_S)
         @test Hsm.source(sm1) === :State_S
-
-        # Test the event interface
-        @test Hsm.event(sm1) === :None
-        Hsm.event!(sm1, :TestEvent)
-        @test Hsm.event(sm1) === :TestEvent
     end
 
     @testset "@ancestor macro" begin

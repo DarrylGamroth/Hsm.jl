@@ -15,7 +15,6 @@ using ValSplit
     mutable struct TestManualSm
         _current::Symbol
         _source::Symbol
-        _event::Symbol
         counter::Int
     end
 
@@ -24,8 +23,6 @@ using ValSplit
     Hsm.current!(sm::TestManualSm, state::Symbol) = sm._current = state
     Hsm.source(sm::TestManualSm) = sm._source
     Hsm.source!(sm::TestManualSm, state::Symbol) = sm._source = state
-    Hsm.event(sm::TestManualSm) = sm._event
-    Hsm.event!(sm::TestManualSm, event::Symbol) = sm._event = event
 
     # Implement the ancestor interface with Val dispatch
     @valsplit Hsm.ancestor(sm::TestManualSm, Val(state::Symbol)) = :Root
@@ -37,12 +34,11 @@ using ValSplit
     Hsm.ancestor(::TestManualSm, ::Val{:State_S21}) = :State_S2
 
     # Create an instance
-    sm = TestManualSm(:Root, :Root, :None, 0)
+    sm = TestManualSm(:Root, :Root, 0)
 
-    # Test current/source/event getters and setters
+    # Test current/source getters and setters
     @test Hsm.current(sm) === :Root
     @test Hsm.source(sm) === :Root
-    @test Hsm.event(sm) === :None
 
     Hsm.current!(sm, :State_S1)
     Hsm.source!(sm, :State_S)
@@ -71,16 +67,12 @@ using ValSplit
     @test Hsm.find_lca(sm, :State_S11, :State_S21) === :State_S  # LCA of two leaf states
     @test Hsm.find_lca(sm, :State_S1, :State_S2) === :State_S    # LCA of two direct children
 
-    # Test event getter and setter
-    Hsm.event!(sm, :TestEvent)
-    @test Hsm.event(sm) === :TestEvent
-
-    # Test that dispatch updates the event field
+    # Test event dispatch
     # Add a proper implementation for on_event! using ValSplit
     ValSplit.@valsplit Hsm.on_event!(sm::TestManualSm, Val(state::Symbol), Val(event::Symbol), arg) = Hsm.EventNotHandled
     Hsm.on_event!(sm::TestManualSm, ::Val{:Root}, ::Val{:TestEvent2}, _) = Hsm.EventHandled
-    Hsm.dispatch!(sm, :TestEvent2)
-    @test Hsm.event(sm) === :TestEvent2
+    result = Hsm.dispatch!(sm, :TestEvent2)
+    @test result === Hsm.EventHandled
 end
 
 @testset "Lowest Common Ancestor (LCA)" begin

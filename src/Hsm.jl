@@ -6,7 +6,7 @@ using ValSplit
 include("macros.jl")
 
 export EventHandled, EventNotHandled
-export current, current!, source, source!, event, event!, ancestor
+export current, current!, source, source!, ancestor
 export on_initial!, on_entry!, on_exit!, on_event!
 export transition!, dispatch!
 export @on_event, @on_initial, @ancestor, @on_entry, @on_exit, @hsmdef
@@ -71,40 +71,6 @@ Hsm.source!(sm::HsmTest, state) = sm.source = state
 ```
 """
 function source! end
-
-"""
-    event(sm)
-
-Get current event of state machine `sm`. This is useful in default event handlers
-to determine which event triggered the handler.
-
-# Example
-```julia
-@on_event :StateA Any function(sm::MyStateMachine, arg)
-    println("Default handler called with event: ", Hsm.event(sm))
-    return Hsm.EventHandled
-end
-```
-
-# Implementation Example
-```julia
-Hsm.event(sm::HsmTest) = sm.event
-```
-"""
-function event end
-
-"""
-    event!(sm, event::Symbol)
-
-Set current event of state machine `sm` to `event`. This is called automatically
-by the dispatch! function before processing an event.
-
-# Implementation Example
-```julia
-Hsm.event!(sm::HsmTest, event) = sm.event = event
-```
-"""
-function event! end
 
 """
     ancestor(sm, state::Val{STATE})
@@ -225,7 +191,7 @@ the `@hsmdef` macro for each state machine type, which returns `EventNotHandled`
 """
 function on_event! end
 
-function do_entry!(sm, s::Symbol, t::Symbol)
+function do_entry!(sm, s::Symbol, t)
     if s == t
         return
     end
@@ -234,7 +200,7 @@ function do_entry!(sm, s::Symbol, t::Symbol)
     return
 end
 
-function do_exit!(sm, s::Symbol, t::Symbol)
+function do_exit!(sm, s::Symbol, t)
     while s != t
         on_exit!(sm, s)
         s = ancestor(sm, s)
@@ -243,8 +209,8 @@ function do_exit!(sm, s::Symbol, t::Symbol)
 end
 
 """
-    transition!(sm, t::Symbol)
-    transition!(action::Function, sm, t::Symbol)
+    transition!(sm, t)
+    transition!(action::Function, sm, t)
 
 Transition state machine `sm` to state `t`.
 The `action` function will be called, if specified, during the transition when the main source state has
@@ -258,11 +224,11 @@ transition!(sm, State_S2) do
 end
 ```
 """
-function transition!(sm, t::Symbol)
+function transition!(sm, t)
     transition!(Returns(nothing), sm, t)
 end
 
-function transition!(action::Function, sm, t::Symbol)
+function transition!(action::Function, sm, t)
     c = current(sm)
     s = source(sm)
     lca = find_lca(sm, s, t)
@@ -349,9 +315,6 @@ Dispatch the event in state machine `sm`.
 """
 function dispatch!(sm, event::Symbol, arg=nothing)
     s = current(sm)
-
-    # Store the current event being dispatched
-    event!(sm, event)
 
     # Find the main source state by calling on_event! until the event is handled
     while true

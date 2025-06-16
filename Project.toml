@@ -1,7 +1,7 @@
 name = "Hsm"
 uuid = "8e6e8f70-f28c-415d-b881-3282d03f8261"
 authors = ["Darryl Gamroth <dgamroth@rubus.ca>"]
-version = "3.0.2"
+version = "3.0.3"
 
 [deps]
 MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
@@ -14,6 +14,7 @@ ValSplit = "0.1.1"
 [extras]
 MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+AllocCheck = "9b6a8646-10ed-4001-bbdc-1d2f46dfbb1a"
 
 [targets]
-test = ["Test", "MacroTools"]
+test = ["Test", "MacroTools", "AllocCheck"]

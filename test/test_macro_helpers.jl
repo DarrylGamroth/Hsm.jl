@@ -39,12 +39,8 @@ import Hsm: process_macro_arguments, process_state_argument, process_event_argum
             @test startswith(String(new_args[1].args[1]), "#")
             @test new_args[1].args[2].head == :curly  # Val{:StateA}
 
-            @test length(injected) == 1
-            # Test injected is an assignment expression: state_gensym = :StateA
-            @test injected[1].head == :(=)
-            # Same variable name in the assignment
-            @test new_args[1].args[1] == injected[1].args[1]
-            @test injected[1].args[2] == QuoteNode(:StateA)
+            # For anonymous parameters, no injected assignment is needed
+            @test length(injected) == 0
         end
 
         # Test error case
@@ -85,12 +81,8 @@ import Hsm: process_macro_arguments, process_state_argument, process_event_argum
             @test startswith(String(new_args[1].args[1]), "#")
             @test new_args[1].args[2].head == :curly  # Val{:EventB}
 
-            @test length(injected) == 1
-            # Test injected is an assignment expression: event_gensym = :EventB
-            @test injected[1].head == :(=)
-            # Same variable name in the assignment
-            @test new_args[1].args[1] == injected[1].args[1]
-            @test injected[1].args[2] == QuoteNode(:EventB)
+            # For anonymous parameters, no injected assignment is needed
+            @test length(injected) == 0
 
             @test is_any_event == false
             # Event name is the generated symbol
@@ -334,8 +326,9 @@ import Hsm: process_macro_arguments, process_state_argument, process_event_argum
             event_name = :e
             is_any_state = false
             state_name = :s
-
-            handler_impl = generate_event_handler_impl(smarg, smtype, new_args, full_body, is_any_event, event_name, is_any_state, state_name)
+            
+            # Pass nothing for method_where_clause (no type parameters)
+            handler_impl = generate_event_handler_impl(smarg, smtype, new_args, full_body, is_any_event, event_name, is_any_state, state_name, nothing)
 
             # Since implementation details might change, only test that we get a valid Expr back
             @test isa(handler_impl, Expr)
@@ -365,8 +358,9 @@ import Hsm: process_macro_arguments, process_state_argument, process_event_argum
             event_name = :event
             is_any_state = false
             state_name = :s
-
-            handler_impl = generate_event_handler_impl(smarg, smtype, new_args, full_body, is_any_event, event_name, is_any_state, state_name)
+            
+            # Pass nothing for method_where_clause (no type parameters)
+            handler_impl = generate_event_handler_impl(smarg, smtype, new_args, full_body, is_any_event, event_name, is_any_state, state_name, nothing)
 
             # Since implementation details might change, only test that we get a valid Expr back
             @test isa(handler_impl, Expr)

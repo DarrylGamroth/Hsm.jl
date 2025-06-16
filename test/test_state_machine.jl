@@ -241,12 +241,12 @@ using Hsm
         # Create a state machine for testing event tracking
         sm = ComplexTestSm(0, String[])
 
-        # Verify that the event field is updated during dispatch
-        Hsm.dispatch!(sm, :Event_Reset)
-        @test Hsm.event(sm) === :Event_Reset
+        # Test that events are handled properly without tracking internal event state
+        result1 = Hsm.dispatch!(sm, :Event_Reset)
+        @test result1 === Hsm.EventHandled
 
         # Test with another event
-        Hsm.dispatch!(sm, :Event_A)
-        @test Hsm.event(sm) === :Event_A
+        result2 = Hsm.dispatch!(sm, :Event_A)
+        @test result2 === Hsm.EventHandled
     end
 end
