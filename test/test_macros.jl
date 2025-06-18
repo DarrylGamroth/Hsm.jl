@@ -15,20 +15,6 @@ using ValSplit
         @test sm1.counter == 0
         @test sm1.name == "test1"
 
-        # Test keyword constructor
-        sm2 = TestSm(counter=42, name="test2")
-        @test sm2.counter == 42
-        @test sm2.name == "test2"
-
-        # Test keyword constructor ordering doesn't matter
-        sm2a = TestSm(name="test2a", counter=43)
-        @test sm2a.counter == 43
-        @test sm2a.name == "test2a"
-
-        # Test keyword constructor error handling
-        @test_throws ArgumentError TestSm(name="missing-counter")
-        @test_throws ArgumentError TestSm(counter=10)
-
         # Test that the struct is mutable
         sm1.counter = 10
         @test sm1.counter == 10

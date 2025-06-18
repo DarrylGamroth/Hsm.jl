@@ -25,7 +25,7 @@ function process_macro_arguments(def, error_prefix, has_event=false)
 
     fn_sig = def.args[1]
     body = def.args[2]
-    
+
     # Handle where clauses
     where_clauses = []  # Always use an array for consistency
     if fn_sig.head == :where
@@ -33,7 +33,7 @@ function process_macro_arguments(def, error_prefix, has_event=false)
         push!(where_clauses, fn_sig.args[2])
         fn_sig = fn_sig.args[1]  # Get the actual function signature
     end
-    
+
     # Extract arguments based on function signature type
     if fn_sig.head == :call
         # Normal function: f(args...) - skip function name
@@ -173,72 +173,76 @@ function _generate_any_event_handler(smarg, smtype, new_args, full_body, event_n
     return quote
         @eval begin
             # Main ValSplit handler for dynamic event dispatch
-            $(if method_where_clause !== nothing
-                # Construct function expression with where clause
-                let 
-                    where_args = if method_where_clause isa Array
-                        method_where_clause  # It's already an array
-                    else
-                        [method_where_clause]  # Single expression, wrap in array
+            $(
+                if method_where_clause !== nothing
+                    # Construct function expression with where clause
+                    let
+                        where_args = if method_where_clause isa Array
+                            method_where_clause  # It's already an array
+                        else
+                            [method_where_clause]  # Single expression, wrap in array
+                        end
+
+                        func_expr = Expr(:function,
+                            Expr(:where,
+                                Expr(:call, :(Hsm.on_event!),
+                                    Expr(:(::), smarg, smtype),
+                                    state_arg,
+                                    :(Val($(event_name)::Symbol)),
+                                    new_args[4]),
+                                where_args...),
+                            full_body)
+                        :(ValSplit.@valsplit $func_expr)
                     end
-                    
-                    func_expr = Expr(:function,
-                         Expr(:where,
-                              Expr(:call, :(Hsm.on_event!),
-                                   Expr(:(::), smarg, smtype),
-                                   state_arg,
-                                   :(Val($(event_name)::Symbol)),
-                                   new_args[4]),
-                              where_args...),
-                         full_body)
-                    :(ValSplit.@valsplit $func_expr)
-                end
-            else
-                quote
-                    ValSplit.@valsplit function Hsm.on_event!(
-                        $smarg::$smtype,
-                        $(state_arg),
-                        Val($(event_name)::Symbol),
-                        $(new_args[4])
-                    )
-                        $full_body
+                else
+                    quote
+                        ValSplit.@valsplit function Hsm.on_event!(
+                            $smarg::$smtype,
+                            $(state_arg),
+                            Val($(event_name)::Symbol),
+                            $(new_args[4])
+                        )
+                            $full_body
+                        end
                     end
                 end
-            end)
+            )
 
             # Fallback handler that returns EventNotHandled for unhandled events
-            $(if method_where_clause !== nothing
-                # Construct function expression with where clause
-                let 
-                    where_args = if method_where_clause isa Array
-                        method_where_clause  # It's already an array
-                    else
-                        [method_where_clause]  # Single expression, wrap in array
+            $(
+                if method_where_clause !== nothing
+                    # Construct function expression with where clause
+                    let
+                        where_args = if method_where_clause isa Array
+                            method_where_clause  # It's already an array
+                        else
+                            [method_where_clause]  # Single expression, wrap in array
+                        end
+
+                        func_expr = Expr(:function,
+                            Expr(:where,
+                                Expr(:call, :(Hsm.on_event!),
+                                    Expr(:(::), smarg, smtype),
+                                    default_state_arg,
+                                    :(::Val{$(QuoteNode(gensym("Any")))}),
+                                    new_args[4]),
+                                where_args...),
+                            :(return Hsm.EventNotHandled))
+                        func_expr
                     end
-                    
-                    func_expr = Expr(:function,
-                         Expr(:where,
-                              Expr(:call, :(Hsm.on_event!),
-                                   Expr(:(::), smarg, smtype),
-                                   default_state_arg,
-                                   :(::Val{$(QuoteNode(gensym("Any")))}),
-                                   new_args[4]),
-                              where_args...),
-                         :(return Hsm.EventNotHandled))
-                    func_expr
-                end
-            else
-                quote
-                    function Hsm.on_event!(
-                        $smarg::$smtype,
-                        $(default_state_arg),
-                        ::Val{$(QuoteNode(gensym("Any")))},
-                        $(new_args[4])
-                    )
-                        return Hsm.EventNotHandled
+                else
+                    quote
+                        function Hsm.on_event!(
+                            $smarg::$smtype,
+                            $(default_state_arg),
+                            ::Val{$(QuoteNode(gensym("Any")))},
+                            $(new_args[4])
+                        )
+                            return Hsm.EventNotHandled
+                        end
                     end
                 end
-            end)
+            )
         end
     end
 end
@@ -253,23 +257,23 @@ function _generate_specific_event_handler(smarg, smtype, new_args, full_body, me
         else
             [method_where_clause]  # Single expression, wrap in array
         end
-        
+
         Expr(:function,
-             Expr(:where, 
-                  Expr(:call, :(Hsm.on_event!), 
-                       Expr(:(::), smarg, smtype),
-                       new_args[2], new_args[3], new_args[4]),
-                  where_args...),
-             full_body)
+            Expr(:where,
+                Expr(:call, :(Hsm.on_event!),
+                    Expr(:(::), smarg, smtype),
+                    new_args[2], new_args[3], new_args[4]),
+                where_args...),
+            full_body)
     else
         # Without where clause
         Expr(:function,
-             Expr(:call, :(Hsm.on_event!), 
-                  Expr(:(::), smarg, smtype),
-                  new_args[2], new_args[3], new_args[4]),
-             full_body)
+            Expr(:call, :(Hsm.on_event!),
+                Expr(:(::), smarg, smtype),
+                new_args[2], new_args[3], new_args[4]),
+            full_body)
     end
-    
+
     return quote
         @eval $func_expr
     end
@@ -681,173 +685,367 @@ macro on_exit(def)
 end
 
 """
-    @hsmdef struct MyStateMachine
-        # Your fields here
-        field1::Type1
-        field2::Type2
-    end
+    @hsmdef
 
-A macro that adds the necessary fields to a struct to make it a proper
-hierarchical state machine. It adds `_current`, `_source`, and `_event` fields and implements the
-required methods for `Hsm.current`, `Hsm.current!`, `Hsm.source`, and `Hsm.source!`.
+A macro that inserts two fields (with generated unique names) into a struct
+and adds a constructor that initializes these fields with :Root.
 
-# Features
-- Adds `_current`, `_source`, and `_event` fields automatically (initialized to `:Root` and `:None` for event)
-- Implements the required Hsm interface methods
-- Provides convenient constructors for positional and keyword arguments
-
-# Notes
-- Must be the outermost macro and applied directly to a struct definition
-- The struct must be explicitly declared as `mutable struct` (required for state transitions)
-- Field names `_current`, `_source`, and `_event` are reserved and cannot be used
-- This macro automatically adds type-specific default handlers for all required methods
-- Using this macro is the only supported way to define a state machine
+The macro works with both plain struct definitions and those using @kwdef.
+The field names are generated using gensym() to avoid name collisions.
 
 # Examples
 ```julia
-# Basic usage - must be declared as mutable
-@hsmdef mutable struct MyStateMachine
-    counter::Int
-    status::String
+@hsmdef struct MyStruct
+    x::Int
 end
 
-# With more complex fields
-@hsmdef mutable struct MyDynamicStateMachine
-    counter::Int
-    status::String
-    data::Vector{Float64}
+@hsmdef @kwdef struct MyKwStruct
+    x::Int = 1
+    y::String = "default"
 end
-
-# Creating an instance with the constructor
-sm = MyStateMachine(0, "idle")
 ```
+
+The macro will add two Symbol fields and create an additional constructor
+that accepts the original fields and automatically sets the generated
+fields to :Root.
 """
-macro hsmdef(struct_expr)
-    # Add source location for better error messages
-    line = __source__.line
-    file = String(__source__.file)
-    source_info = "line $line in $file"
-
-    # Only allow direct struct definitions (no macrocall wrappers)
-    if struct_expr.head != :struct
-        throw(HsmMacroError("@hsmdef (at $(source_info)): Must be the outermost macro and applied directly to a struct definition."))
-    end
-
-    # Extract struct name and body
-    mutable_flag = struct_expr.args[1]
-    # Check if the struct is explicitly declared as mutable
-    if !mutable_flag
-        throw(HsmMacroError("@hsmdef (at $(source_info)): State machine structs must be explicitly declared as mutable. Use `mutable struct` instead of `struct`."))
-    end
-    struct_name = struct_expr.args[2]
-    struct_body = struct_expr.args[3]
-
-    # Separate fields from inner constructors (assignment or function form)
-    fields = []
-    for x in struct_body.args
-        if x isa Symbol || (x isa Expr && (x.head == :(::) || x.head == :(=)))
-            push!(fields, x)
-        end
-    end
-
-    # Create unique internal field names using gensym
+macro hsmdef(expr)
+    # Generate unique field names to avoid collisions
     current_field = gensym("current")
     source_field = gensym("source")
 
-    # Add internal fields with unique generated names
-    push!(fields, Expr(:(::), current_field, :Symbol))
-    push!(fields, Expr(:(::), source_field, :Symbol))
+    # Handle nested macro calls (like @kwdef)
+    if expr.head == :macrocall
+        # Extract the actual struct definition from the macro call
+        struct_expr = expr.args[end]
 
-    # Calculate number of user fields (without internal state machine fields)
-    num_user_fields = length(fields) - 2
+        # Process the inner macro first to get its expansion
+        inner_expanded = macroexpand(__module__, expr)
 
-    # Add an internal constructor to initialize the state machine
-    internal_constructor = quote
-        function $(struct_name)(current, source, args::Vararg{Any,$num_user_fields})
-            # Ensure the correct number of arguments
-            sm = new(args..., current, source)
+        # Extract struct definition and constructors from the expansion
+        struct_def = nothing
+        constructors = []
+        other_items = []
 
-            # Call on_initial! to properly initialize the state machine
-            Hsm.on_initial!(sm, :Root)
-
-            return sm
-        end
-    end
-
-    # Create the new struct definition with the additional fields and internal constructor
-    new_struct_body = Expr(:block, fields..., internal_constructor)
-    new_struct_def = Expr(:struct, mutable_flag, struct_name, new_struct_body)
-
-    # Generate the implementation
-    result = quote
-        # Define the struct with the added fields and internal constructor
-        $(esc(new_struct_def))
-
-        function $(esc(struct_name))(args::Vararg{Any,$num_user_fields})
-            return $(esc(struct_name))(:Root, :Root, args...)
-        end
-
-        # Add keyword constructor for named parameters
-        function $(esc(struct_name))(; kwargs...)
-            # Extract field names (excluding internal fields)
-            field_symbols = $(Expr(:vect, [x isa Symbol ? QuoteNode(x) : QuoteNode(x.args[1]) for x in fields[1:num_user_fields]]...))
-
-            # Collect arguments in the correct order
-            args = []
-            for field_name in field_symbols
-                if haskey(kwargs, field_name)
-                    push!(args, kwargs[field_name])
+        function extract_items(item)
+            if item isa Expr
+                if item.head == :struct
+                    struct_def = item
+                elseif item.head == :function
+                    push!(constructors, item)
+                elseif item.head == :block
+                    # Handle nested blocks
+                    for subitem in item.args
+                        extract_items(subitem)
+                    end
                 else
-                    throw(ArgumentError("Missing required field: $field_name"))
+                    push!(other_items, item)
                 end
+            elseif item !== nothing && !(item isa LineNumberNode)
+                push!(other_items, item)
             end
-
-            # Create the instance which will call the internal constructor
-            return $(esc(struct_name))(:Root, :Root, args...)
         end
 
-        # Add default state machine handlers with type-specific dispatch
-        # This ensures each state machine has its own default handlers
-        # and prevents method ambiguity between different state machines
-
-        # Use @eval to properly create the handlers with the correct scope
-        @eval begin
-            # Implement the Hsm interface methods with the generated field names
-            Hsm.current(sm::$(struct_name)) = getfield(sm, $(QuoteNode(current_field)))
-            Hsm.current!(sm::$(struct_name), state::Symbol) = setfield!(sm, $(QuoteNode(current_field)), state)
-            Hsm.source(sm::$(struct_name)) = getfield(sm, $(QuoteNode(source_field)))
-            Hsm.source!(sm::$(struct_name), state::Symbol) = setfield!(sm, $(QuoteNode(source_field)), state)
-
-            # Default initial handler (returns EventHandled)
-            ValSplit.@valsplit Hsm.on_initial!(sm::$(struct_name), Val(state::Symbol)) = Hsm.EventHandled
-
-            # Default entry handler (does nothing)
-            ValSplit.@valsplit Hsm.on_entry!(sm::$(struct_name), Val(state::Symbol)) = nothing
-
-            # Default exit handler (does nothing)
-            ValSplit.@valsplit Hsm.on_exit!(sm::$(struct_name), Val(state::Symbol)) = nothing
-
-            # Default event handler (returns EventNotHandled to propagate events up)
-            ValSplit.@valsplit Hsm.on_event!(
-                sm::$(struct_name),
-                Val(state::Symbol),
-                Val(event::Symbol),
-                arg::T
-            ) where {T} = Hsm.EventNotHandled
-
-            # Default ancestor method with error for undefined states
-            ValSplit.@valsplit function Hsm.ancestor(
-                sm::$(struct_name),
-                Val(state::Symbol)
-            )
-                throw(HsmStateError("No ancestor defined for state \$(state) in $($(struct_name)). Use the @ancestor macro to define state relationships."))
-                return :Root  # For type-stability, return :Root for unknown states
+        if inner_expanded.head == :block
+            for item in inner_expanded.args
+                extract_items(item)
             end
+        else
+            extract_items(inner_expanded)
+        end
 
-            # Special case: Root state's ancestor is Root itself
-            Hsm.ancestor(sm::$(struct_name), ::Val{:Root}) = :Root
+        if struct_def !== nothing
+            # Validate that the struct is mutable
+            validate_mutable_struct(struct_def)
+            
+            # Add the two new fields to the struct
+            modified_struct = add_fields_to_struct(struct_def, current_field, source_field)
+
+            # Create the additional constructor
+            struct_name = get_struct_name(struct_def)
+            original_field_count = count_original_fields(struct_expr)
+            additional_constructor = create_additional_constructor(struct_name, original_field_count)
+
+            # Create the HSM interface methods
+            hsm_interface = create_state_machine_interface(struct_name, current_field, source_field)
+
+            # Return the modified expansion with all components
+            result = Expr(:block)
+            for item in other_items
+                push!(result.args, item)
+            end
+            push!(result.args, modified_struct)
+            for constructor in constructors
+                push!(result.args, constructor)
+            end
+            push!(result.args, additional_constructor)
+            push!(result.args, hsm_interface)
+
+            return esc(result)
+        end
+    else
+        # Handle direct struct definition
+        if expr.head == :struct
+            # Validate that the struct is mutable
+            validate_mutable_struct(expr)
+            
+            # Add the two new fields
+            modified_struct = add_fields_to_struct(expr, current_field, source_field)
+
+            # Create additional constructor
+            struct_name = get_struct_name(expr)
+            original_field_count = count_original_fields(expr)
+            additional_constructor = create_additional_constructor(struct_name, original_field_count)
+
+            # Create the HSM interface methods
+            hsm_interface = create_state_machine_interface(struct_name, current_field, source_field)
+
+            return esc(quote
+                $modified_struct
+                $additional_constructor
+                $hsm_interface
+            end)
         end
     end
 
-    return result
+    # Fallback: return original expression if we can't process it
+    return esc(expr)
+end
+
+function add_fields_to_struct(struct_expr, current_field, source_field)
+    modified_struct = deepcopy(struct_expr)
+
+    # Find the body of the struct (where fields are defined)
+    body = modified_struct.args[3]
+
+    # Add the two new fields with generated names
+    push!(body.args, Expr(:(::), current_field, :Symbol))
+    push!(body.args, Expr(:(::), source_field, :Symbol))
+
+    return modified_struct
+end
+
+function get_struct_name(struct_expr)
+    name_expr = struct_expr.args[2]
+
+    if name_expr isa Symbol
+        return name_expr
+    elseif name_expr isa Expr
+        # Handle parametric types like MyStruct{T,C}
+        if name_expr.head == :curly
+            return name_expr.args[1]
+        elseif name_expr.head == :<:
+            # Handle inheritance like MyStruct <: AbstractType or MyStruct{T,C} <: AbstractType
+            left_side = name_expr.args[1]
+            if left_side isa Symbol
+                return left_side
+            elseif left_side isa Expr && left_side.head == :curly
+                return left_side.args[1]
+            end
+        end
+    end
+
+    error("Could not extract struct name from: $name_expr")
+end
+
+function count_original_fields(struct_expr)
+    body = struct_expr.args[3]
+    field_count = 0
+
+    for arg in body.args
+        if arg isa Symbol || (arg isa Expr && (arg.head == :(::) || arg.head == :(=)))
+            field_count += 1
+        end
+    end
+
+    return field_count
+end
+
+function create_additional_constructor(struct_name, field_count)
+    if field_count == 0
+        # For empty structs, create a simple constructor that only accepts the two generated fields
+        return Expr(:function,
+            Expr(:call, struct_name),
+            Expr(:block,
+                Expr(:(=), :sm, Expr(:call, struct_name, QuoteNode(:Root), QuoteNode(:Root))),
+                Expr(:call, :(Hsm.on_initial!), :sm, QuoteNode(:Root)),
+                Expr(:return, :sm)
+            )
+        )
+    else
+        # Create function signature: MyStruct(args::Vararg{Any,n})
+        # This constructor accepts exactly the original field count and appends :Root for the two new fields
+        vararg_type = Expr(:curly, :Vararg, :Any, field_count)
+        func_signature = Expr(:call, struct_name, Expr(:(::), :args, vararg_type))
+
+        # Create function body: sm = MyStruct(args..., :Root, :Root); Hsm.on_initial!(sm, :Root); return sm
+        func_body = Expr(:block,
+            Expr(:(=), :sm, Expr(:call, struct_name, :(args...), QuoteNode(:Root), QuoteNode(:Root))),
+            Expr(:call, :(Hsm.on_initial!), :sm, QuoteNode(:Root)),
+            :sm
+        )
+
+        # Return function expression
+        return Expr(:function, func_signature, func_body)
+    end
+end
+
+"""
+    create_state_machine_interface(struct_name, current_field, source_field)
+
+Create Expr block defining the Hsm interface methods for a struct with generated field names.
+This maintains proper macro hygiene by returning expressions instead of using @eval.
+"""
+function create_state_machine_interface(struct_name, current_field, source_field)
+    # Create the interface methods as expressions
+    interface_methods = Expr(:block)
+
+    # Hsm.current(sm::StructName) = getfield(sm, :generated_current_field)
+    push!(interface_methods.args,
+        Expr(:function,
+            Expr(:call, :(Hsm.current), Expr(:(::), :sm, struct_name)),
+            Expr(:call, :getfield, :sm, QuoteNode(current_field))
+        )
+    )
+
+    # Hsm.current!(sm::StructName, state::Symbol) = setfield!(sm, :generated_current_field, state)
+    push!(interface_methods.args,
+        Expr(:function,
+            Expr(:call, :(Hsm.current!),
+                Expr(:(::), :sm, struct_name),
+                Expr(:(::), :state, :Symbol)),
+            Expr(:call, :setfield!, :sm, QuoteNode(current_field), :state)
+        )
+    )
+
+    # Hsm.source(sm::StructName) = getfield(sm, :generated_source_field)
+    push!(interface_methods.args,
+        Expr(:function,
+            Expr(:call, :(Hsm.source), Expr(:(::), :sm, struct_name)),
+            Expr(:call, :getfield, :sm, QuoteNode(source_field))
+        )
+    )
+
+    # Hsm.source!(sm::StructName, state::Symbol) = setfield!(sm, :generated_source_field, state)
+    push!(interface_methods.args,
+        Expr(:function,
+            Expr(:call, :(Hsm.source!),
+                Expr(:(::), :sm, struct_name),
+                Expr(:(::), :state, :Symbol)),
+            Expr(:call, :setfield!, :sm, QuoteNode(source_field), :state)
+        )
+    )
+
+    # Default initial handler
+    push!(interface_methods.args,
+        Expr(:macrocall, 
+            :(ValSplit.var"@valsplit"), 
+            LineNumberNode(@__LINE__, @__FILE__),
+            Expr(:function,
+                Expr(:call, :(Hsm.on_initial!),
+                    Expr(:(::), :sm, struct_name),
+                    Expr(:call, :Val, Expr(:(::), :state, :Symbol))),
+                :(Hsm.EventHandled)
+            )
+        )
+    )
+
+    # Default entry handler
+    push!(interface_methods.args,
+        Expr(:macrocall, 
+            :(ValSplit.var"@valsplit"), 
+            LineNumberNode(@__LINE__, @__FILE__),
+            Expr(:function,
+                Expr(:call, :(Hsm.on_entry!),
+                    Expr(:(::), :sm, struct_name),
+                    Expr(:call, :Val, Expr(:(::), :state, :Symbol))),
+                :nothing
+            )
+        )
+    )
+
+    # Default exit handler
+    push!(interface_methods.args,
+        Expr(:macrocall, 
+            :(ValSplit.var"@valsplit"), 
+            LineNumberNode(@__LINE__, @__FILE__),
+            Expr(:function,
+                Expr(:call, :(Hsm.on_exit!),
+                    Expr(:(::), :sm, struct_name),
+                    Expr(:call, :Val, Expr(:(::), :state, :Symbol))),
+                :nothing
+            )
+        )
+    )
+
+    # Default event handler
+    push!(interface_methods.args,
+        Expr(:macrocall, 
+            :(ValSplit.var"@valsplit"), 
+            LineNumberNode(@__LINE__, @__FILE__),
+            Expr(:function,
+                Expr(:where,
+                    Expr(:call, :(Hsm.on_event!),
+                        Expr(:(::), :sm, struct_name),
+                        Expr(:call, :Val, Expr(:(::), :state, :Symbol)),
+                        Expr(:call, :Val, Expr(:(::), :event, :Symbol)),
+                        Expr(:(::), :arg, :T)),
+                    :T),
+                :(Hsm.EventNotHandled)
+            )
+        )
+    )
+
+    # Default ancestor method with error
+    push!(interface_methods.args,
+        Expr(:macrocall, 
+            :(ValSplit.var"@valsplit"), 
+            LineNumberNode(@__LINE__, @__FILE__),
+            Expr(:function,
+                Expr(:call, :(Hsm.ancestor),
+                    Expr(:(::), :sm, struct_name),
+                    Expr(:call, :Val, Expr(:(::), :state, :Symbol))),
+                Expr(:block,
+                    Expr(:call, :throw,
+                        Expr(:call, :HsmStateError,
+                            Expr(:string, "No ancestor defined for state ", :state, " in ", struct_name, ". Use the @ancestor macro to define state relationships."))),
+                    Expr(:return, QuoteNode(:Root))
+                )
+            )
+        )
+    )
+
+    # Special case: Root state's ancestor is Root itself
+    # Hsm.ancestor(sm::$(struct_name), Val(:Root)) = Root
+    push!(interface_methods.args,
+        Expr(:function,
+            Expr(:call, :(Hsm.ancestor),
+                Expr(:(::), :sm, struct_name),
+                Expr(:(::), Expr(:curly, :Val, QuoteNode(:Root)))),
+            QuoteNode(:Root)
+        )
+    )
+
+    return interface_methods
+end
+
+"""
+    validate_mutable_struct(struct_expr)
+
+Validates that a struct expression represents a mutable struct.
+Throws an error if the struct is not mutable, since HSM requires mutability for state changes.
+"""
+function validate_mutable_struct(struct_expr)
+    if struct_expr.head != :struct
+        error("Expected a struct definition, got: $(struct_expr.head)")
+    end
+    
+    # struct expressions have the form: Expr(:struct, mutable_flag, name, body)
+    # The second argument (index 1) is the mutability flag
+    is_mutable = struct_expr.args[1]
+    
+    if !is_mutable
+        struct_name = get_struct_name(struct_expr)
+        error("must be explicitly declared as mutable")
+    end
 end
