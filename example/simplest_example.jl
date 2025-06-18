@@ -50,9 +50,9 @@ end
     return Hsm.EventHandled
 end
 
-function main(ARGS)
+function (@main)(ARGS)
     # Create and initialize a state machine
-    sm = TestHsm(foo=0, message="Hello")
+    sm = TestHsm(0, "Hello")
     @show sm
     println("State machine initialized. Current state: ", Hsm.current(sm))
 

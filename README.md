@@ -57,14 +57,14 @@ end
     return Hsm.transition!(sm, :Off)
 end
 
-# Define a default event handler for any unhandled event
-@on_event function(sm::LightSwitch, ::Off, ::Any, arg)
-    println("Unhandled event in Off state: $(Hsm.event(sm))")
+# Define a default event handler for any unhandled event (requires named parameter)
+@on_event function(sm::LightSwitch, ::Off, event::Any, arg)
+    println("Unhandled event in Off state: $(event)")
     return Hsm.EventNotHandled
 end
 
 # Create and use the state machine - initialization is automatic
-sm = LightSwitch(power_on=false)
+sm = LightSwitch(false)
 Hsm.dispatch!(sm, :Toggle)  # Transitions to On
 Hsm.dispatch!(sm, :UnknownEvent)  # Will be caught by the default handler
 ```
@@ -158,30 +158,6 @@ These exception types provide more specific error information than generic error
 - **Event Argument Format**: Event arguments must be of the form `::EventName` or `event::EventName`
 - **Ancestor Errors**: Undefined state relationships or invalid relationship expressions
 
-### Handling Errors
-
-When using macros that are evaluated at compile time (`@eval`), exceptions will be wrapped in a `LoadError`:
-
-```julia
-try
-    # Your Hsm.jl code here
-catch e
-    # Extract the original exception if it's wrapped in LoadError
-    orig_e = e isa LoadError ? e.error : e
-    
-    if orig_e isa Hsm.HsmStateError
-        println("State error: ", orig_e.msg)
-        # Handle state errors
-    elseif orig_e isa Hsm.HsmEventError
-        println("Event error: ", orig_e.msg)
-        # Handle event errors 
-    elseif orig_e isa Hsm.HsmMacroError
-        println("Macro usage error: ", orig_e.msg)
-        # Handle macro errors
-    else
-        rethrow(e)
-    end
-end
 ```
 
 ## License

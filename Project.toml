@@ -1,7 +1,7 @@
 name = "Hsm"
 uuid = "8e6e8f70-f28c-415d-b881-3282d03f8261"
 authors = ["Darryl Gamroth <dgamroth@rubus.ca>"]
-version = "3.0.4"
+version = "3.0.5"
 
 [deps]
 MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
