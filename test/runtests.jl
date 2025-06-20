@@ -1,5 +1,6 @@
 using Test
 using Hsm
+using ValSplit
 
 @testset "Hsm.jl" begin
     include("test_core.jl")

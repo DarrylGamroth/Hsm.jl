@@ -352,84 +352,56 @@ function process_state_argument(state_arg, error_prefix)
 end
 
 """
-    @ancestor smtype child => parent
+    @statedef smtype child parent
+    @statedef smtype child
 
-Define an ancestor relationship between states in a hierarchical state machine.
+Define a state in a hierarchical state machine.
 This establishes the state hierarchy used for event propagation and state transitions.
 
 # Arguments
 - `smtype`: The state machine type for which the relationship is defined
-- `child => parent`: A relationship where `child` is a symbol representing a state and `parent` is its ancestor
+- `child`: A state symbol representing the child state
+- `parent`: A state symbol representing the parent state (optional, defaults to `:Root`)
 
 # Examples
 ```julia
-# Single relationship
-@ancestor MyStateMachine :State_S1 => :State_S
+# Define relationships with explicit parents
+@statedef MyStateMachine :State_S1 :State_S
+@statedef MyStateMachine :State_S2 :State_S
+@statedef MyStateMachine :State_S11 :State_S1
 
-# Multiple relationships
-@ancestor MyStateMachine begin
-    :State_S1 => :State_S
-    :State_S2 => :State_S
-    :State_S11 => :State_S1
-end
+# Define relationships with implied :Root parent
+@statedef MyStateMachine :State_S
+@statedef MyStateMachine :State_A
 
 # Complete state hierarchy example
-@ancestor MyStateMachine begin
-    :State_S => :Root
-    :State_S1 => :State_S
-    :State_S2 => :State_S
-    :State_S11 => :State_S1
-    :State_S21 => :State_S2
-end
+@statedef MyStateMachine :State_S     # implies parent is :Root
+@statedef MyStateMachine :State_S1 :State_S
+@statedef MyStateMachine :State_S2 :State_S
+@statedef MyStateMachine :State_S11 :State_S1
+@statedef MyStateMachine :State_S21 :State_S2
 ```
 """
-macro ancestor(args...)
+macro statedef(smtype, child, parent=:Root)
     # Add source location for better error messages
     line = __source__.line
     file = String(__source__.file)
     source_info = "line $line in $file"
 
-    if length(args) != 2
-        throw(ArgumentError("@ancestor (at $(source_info)): Expected exactly two arguments: state machine type and state relationships"))
+    # Extract the child symbol value if it's a QuoteNode
+    child_sym = child isa QuoteNode ? child.value : child
+    parent_sym = parent isa QuoteNode ? parent.value : parent
+
+    # Validate that child and parent are symbols
+    if !(child_sym isa Symbol)
+        throw(ArgumentError("@statedef (at $(source_info)): Child state must be a symbol (e.g., :StateA)"))
     end
 
-    smtype, pair = args
-
-    if !(pair isa Expr)
-        throw(ArgumentError("@ancestor (at $(source_info)): Second argument must be an expression with => or a begin...end block"))
+    if !(parent_sym isa Symbol)
+        throw(ArgumentError("@statedef (at $(source_info)): Parent state must be a symbol (e.g., :Root)"))
     end
 
-    if pair.head == :block
-        exs = []
-        for stmt in pair.args
-            if stmt isa Expr && stmt.head == :call && stmt.args[1] === Symbol("=>")
-                if length(stmt.args) != 3
-                    throw(ArgumentError("@ancestor (at $(source_info)): Invalid relationship expression. Use format: child => parent"))
-                end
-
-                # Check for nested relation which isn't allowed
-                if stmt.args[3] isa Expr && stmt.args[3].head == :call && stmt.args[3].args[1] === Symbol("=>")
-                    throw(ArgumentError("@ancestor (at $(source_info)): Invalid relationship expression. Nested relations like 'a => b => c' are not allowed."))
-                end
-
-                child = stmt.args[2]
-                parent = stmt.args[3]
-                push!(exs, :(Hsm.ancestor(::$(esc(smtype)), ::$(esc(:Val)){$child}) = $(parent)))
-            elseif !(stmt isa LineNumberNode)
-                throw(HsmStateError("@ancestor (at $(source_info)): Invalid statement in block. Expected format: child => parent"))
-            end
-        end
-        return Expr(:block, exs...)
-    elseif pair.head == :call && pair.args[1] === Symbol("=>")
-        if length(pair.args) != 3
-            throw(HsmStateError("@ancestor (at $(source_info)): Invalid relationship expression. Use format: child => parent"))
-        end
-        child = pair.args[2]
-        parent = pair.args[3]
-        return :(Hsm.ancestor(::$(esc(smtype)), ::$(esc(:Val)){$child}) = $(parent))
-    else
-        throw(HsmStateError("@ancestor (at $(source_info)): Expected => operator or begin...end block with relationships"))
-    end
+    return :(Hsm.ancestor(::$(esc(smtype)), ::$(esc(:Val)){$(QuoteNode(child_sym))}) = $(QuoteNode(parent_sym)))
 end
 
 """
@@ -990,7 +962,7 @@ function create_state_machine_interface(struct_name, current_field, source_field
                 Expr(:block,
                     Expr(:call, :throw,
                         Expr(:call, :HsmStateError,
-                            Expr(:string, "No ancestor defined for state ", :state, " in ", struct_name, ". Use the @ancestor macro to define state relationships."))),
+                            Expr(:string, "No ancestor defined for state ", :state, " in ", struct_name, ". Use the @statedef macro to define state relationships."))),
                     Expr(:return, QuoteNode(:Root))
                 )
             )

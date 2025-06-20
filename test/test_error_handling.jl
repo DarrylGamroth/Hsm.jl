@@ -23,53 +23,41 @@ using Hsm
         end
     end
 
-    @testset "@ancestor Error Handling" begin
+    @testset "@statedef Error Handling" begin
         # Create a valid state machine for testing errors
         @hsmdef mutable struct ErrorTestSm
             value::Int
         end
 
         # Test with wrong number of arguments
+        @test_throws LoadError @eval @statedef ErrorTestSm
+
+        # Test with invalid child argument (not a symbol)
         @test_throws LoadError try
-            @eval @ancestor ErrorTestSm
+            @eval @statedef ErrorTestSm "StateA"
         catch e
-            # Extract the original exception from the LoadError
-            orig_e = e isa LoadError ? e.error : e
-            @test occursin("Expected exactly two arguments", orig_e.msg)
+            @test e isa LoadError
+            @test e.error isa ArgumentError
+            @test occursin("Child state must be a symbol", e.error.msg)
             rethrow(e)
         end
 
-        # Test with invalid relationship format
+        # Test with invalid parent argument (not a symbol)
         @test_throws LoadError try
-            @eval @ancestor ErrorTestSm :StateA
+            @eval @statedef ErrorTestSm :StateA "Root"
         catch e
-            # Extract the original exception from the LoadError
-            orig_e = e isa LoadError ? e.error : e
-            @test occursin("must be an expression with =>", orig_e.msg)
+            @test e isa LoadError
+            @test e.error isa ArgumentError
+            @test occursin("Parent state must be a symbol", e.error.msg)
             rethrow(e)
         end
 
-        # Test invalid statement in block
+        # Test too many arguments (only accepts 2-3 arguments)
         @test_throws LoadError try
-            @eval @ancestor ErrorTestSm begin
-                :Invalid_Format
-            end
+            @eval @statedef ErrorTestSm :StateA :StateB :StateC :StateD
         catch e
-            # Extract the original exception from the LoadError
-            orig_e = e isa LoadError ? e.error : e
-            @test occursin("Invalid statement in block", orig_e.msg)
-            rethrow(e)
-        end
-
-        # Test invalid relationship in block
-        @test_throws LoadError try
-            @eval @ancestor ErrorTestSm begin
-                :StateA => :StateB => :StateC
-            end
-        catch e
-            # Extract the original exception from the LoadError
-            orig_e = e isa LoadError ? e.error : e
-            @test occursin("Invalid relationship expression", orig_e.msg)
+            @test e isa LoadError
+            @test e.error isa MethodError
             rethrow(e)
         end
     end
@@ -119,7 +107,7 @@ using Hsm
         end
 
         # Define a partial ancestry
-        @ancestor AncestorErrorTestSm :State_A => :Root
+        @statedef AncestorErrorTestSm :State_A :Root
 
         sm = AncestorErrorTestSm(0)
 

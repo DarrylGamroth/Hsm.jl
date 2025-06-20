@@ -9,11 +9,9 @@ using Hsm
     end
 
     # Define state hierarchy
-    @ancestor KwargTestSm begin
-        :State_Top => :Root
-        :State_S1 => :State_Top
-        :State_S2 => :State_Top
-    end
+    @statedef KwargTestSm :State_Top
+    @statedef KwargTestSm :State_S1 :State_Top
+    @statedef KwargTestSm :State_S2 :State_Top
 
     @on_initial function (sm::KwargTestSm, ::Root)
         push!(sm.log, "Initial handler for Root")

@@ -10,11 +10,9 @@ using ValSplit
 end
 
 # Define state hierarchy
-@ancestor TestHsm begin
-    :State => :Root
-    :State1 => :State
-    :State2 => :State1
-end
+@statedef TestHsm :State
+@statedef TestHsm :State1 :State
+@statedef TestHsm :State2 :State1
 
 @on_initial function (sm::TestHsm, ::Root)
     println("Initializing State with foo = ", sm.foo)

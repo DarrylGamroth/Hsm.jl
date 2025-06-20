@@ -9,11 +9,9 @@ using Hsm
     end
 
     # Define state hierarchy
-    @ancestor DefaultHandlerTestSm begin
-        :StateA => :Root
-        :StateB => :StateA
-        :StateC => :StateA
-    end
+    @statedef DefaultHandlerTestSm :StateA
+    @statedef DefaultHandlerTestSm :StateB :StateA
+    @statedef DefaultHandlerTestSm :StateC :StateA
 
     # Initialize to StateB
     @on_initial function (sm::DefaultHandlerTestSm, ::Root)

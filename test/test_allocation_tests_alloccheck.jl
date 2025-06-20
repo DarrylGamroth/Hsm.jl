@@ -35,10 +35,8 @@ struct NestedStruct
 end
 
 # Define state hierarchy
-@ancestor AllocationTestSm begin
-    :StateA => :Root
-    :StateB => :Root
-end
+@statedef AllocationTestSm :StateA :Root
+@statedef AllocationTestSm :StateB :Root
 
 # Define handlers
 @on_initial function (sm::AllocationTestSm, ::Root)

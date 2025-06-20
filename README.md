@@ -36,11 +36,9 @@ using Hsm
     power_on::Bool
 end
 
-# Define the state hierarchy (using block syntax for multiple states)
-@ancestor LightSwitch begin
-    :Off => :Root
-    :On => :Root
-end
+# Define the state hierarchy
+@statedef LightSwitch :Off
+@statedef LightSwitch :On
 
 @on_initial function(sm::LightSwitch, ::Root)
     return Hsm.transition!(sm, :Off)

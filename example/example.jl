@@ -19,14 +19,12 @@ Logging.global_logger(ConsoleLogger(stderr, Logging.Debug))
 end
 
 # Define the ancestor relationships using the macro
-@ancestor HsmTest begin
-    :State_S => :Root
-    :State_S1 => :State_S
-    :State_S11 => :State_S1
-    :State_S2 => :State_S
-    :State_S21 => :State_S2
-    :State_S211 => :State_S21
-end
+@statedef HsmTest :State_S
+@statedef HsmTest :State_S1 :State_S
+@statedef HsmTest :State_S11 :State_S1
+@statedef HsmTest :State_S2 :State_S
+@statedef HsmTest :State_S21 :State_S2
+@statedef HsmTest :State_S211 :State_S21
 
 # Initial handler for Root
 @on_initial function (sm::HsmTest, ::Root)

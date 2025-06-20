@@ -29,21 +29,19 @@ using ValSplit
         @test Hsm.source(sm1) === :State_S
     end
 
-    @testset "@ancestor macro" begin
+    @testset "@statedef macro" begin
         # Create a state machine for testing ancestor relations
         @hsmdef mutable struct AncestorTestSm
             value::Int
         end
 
         # Define ancestry
-        @ancestor AncestorTestSm begin
-            :State_S => :Root
-            :State_S1 => :State_S
-            :State_S11 => :State_S1
-            :State_S2 => :State_S
-            :State_S21 => :State_S2
-            :State_S211 => :State_S21
-        end
+        @statedef AncestorTestSm :State_S
+        @statedef AncestorTestSm :State_S1 :State_S
+        @statedef AncestorTestSm :State_S11 :State_S1
+        @statedef AncestorTestSm :State_S2 :State_S
+        @statedef AncestorTestSm :State_S21 :State_S2
+        @statedef AncestorTestSm :State_S211 :State_S21
 
         # Create an instance for testing
         sm = AncestorTestSm(0)
@@ -57,8 +55,12 @@ using ValSplit
         @test Hsm.ancestor(sm, Val(:State_S211)) === :State_S21
 
         # Test single definition syntax
-        @ancestor AncestorTestSm :TestState => :Root
+        @statedef AncestorTestSm :TestState :Root
         @test Hsm.ancestor(sm, Val(:TestState)) === :Root
+
+        # Test implied parent syntax (should default to :Root)
+        @statedef AncestorTestSm :ImpliedRootState
+        @test Hsm.ancestor(sm, Val(:ImpliedRootState)) === :Root
     end
 
     @testset "@on_event, @on_entry, @on_exit, @on_initial macros" begin
@@ -68,11 +70,9 @@ using ValSplit
         end
 
         # Define ancestry
-        @ancestor HandlerTestSm begin
-            :State_A => :Root
-            :State_B => :Root
-            :State_A1 => :State_A
-        end
+        @statedef HandlerTestSm :State_A
+        @statedef HandlerTestSm :State_B
+        @statedef HandlerTestSm :State_A1 :State_A
 
         # Define event handlers
         @on_initial function (sm::HandlerTestSm, ::Root)

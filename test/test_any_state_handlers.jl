@@ -10,12 +10,10 @@ using Hsm
         end
 
         # Define ancestry for testing
-        @ancestor AnyStateTestSm begin
-            :State_A => :Root
-            :State_B => :Root
-            :State_A1 => :State_A
-            :State_A2 => :State_A
-        end
+        @statedef AnyStateTestSm :State_A
+        @statedef AnyStateTestSm :State_B
+        @statedef AnyStateTestSm :State_A1 :State_A
+        @statedef AnyStateTestSm :State_A2 :State_A
 
         # Define on_initial handler for non-leaf state State_A
         @on_initial function (sm::AnyStateTestSm, ::State_A)
@@ -67,12 +65,10 @@ using Hsm
         end
 
         # Define ancestry for testing
-        @ancestor AnyExitStateTestSm begin
-            :State_X => :Root
-            :State_Y => :Root
-            :State_X1 => :State_X
-            :State_X2 => :State_X
-        end
+        @statedef AnyExitStateTestSm :State_X
+        @statedef AnyExitStateTestSm :State_Y
+        @statedef AnyExitStateTestSm :State_X1 :State_X
+        @statedef AnyExitStateTestSm :State_X2 :State_X
 
         @on_initial function (sm::AnyExitStateTestSm, ::Root)
             return Hsm.transition!(sm, :State_X) do
@@ -144,11 +140,9 @@ using Hsm
         end
 
         # Define ancestry for testing
-        @ancestor PrecedenceTestSm begin
-            :State_P => :Root
-            :State_P1 => :State_P
-            :State_P2 => :State_P
-        end
+        @statedef PrecedenceTestSm :State_P
+        @statedef PrecedenceTestSm :State_P1 :State_P
+        @statedef PrecedenceTestSm :State_P2 :State_P
 
         @on_initial function (sm::PrecedenceTestSm, ::Root)
             return Hsm.transition!(sm, :State_P) do

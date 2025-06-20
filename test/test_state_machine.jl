@@ -9,15 +9,13 @@ using Hsm
     end
 
     # Define state hierarchy
-    @ancestor ComplexTestSm begin
-        :State_Top => :Root
-        :State_S1 => :State_Top
-        :State_S11 => :State_S1
-        :State_S12 => :State_S1
-        :State_S2 => :State_Top
-        :State_S21 => :State_S2
-        :State_S211 => :State_S21
-    end
+    @statedef ComplexTestSm :State_Top
+    @statedef ComplexTestSm :State_S1 :State_Top
+    @statedef ComplexTestSm :State_S11 :State_S1
+    @statedef ComplexTestSm :State_S12 :State_S1
+    @statedef ComplexTestSm :State_S2 :State_Top
+    @statedef ComplexTestSm :State_S21 :State_S2
+    @statedef ComplexTestSm :State_S211 :State_S21
 
     @on_initial function (sm::ComplexTestSm, ::Root)
         push!(sm.log, "Initial handler for :Root")
