@@ -1,5 +1,8 @@
 # Hsm.jl - Hierarchical State Machine Library
 
+[![CI](https://github.com/DarrylGamroth/Hsm.jl/actions/workflows/ci.yml/badge.svg)](https://github.com/DarrylGamroth/Hsm.jl/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/DarrylGamroth/Hsm.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/DarrylGamroth/Hsm.jl)
+
 A zero-allocation, dynamic dispatch-free hierarchical state machine library for Julia.
 
 ## Overview
