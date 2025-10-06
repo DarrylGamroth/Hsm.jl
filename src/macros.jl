@@ -401,7 +401,9 @@ macro statedef(smtype, child, parent=:Root)
         throw(ArgumentError("@statedef (at $(source_info)): Parent state must be a symbol (e.g., :Root)"))
     end
 
-    return :(Hsm.ancestor(::$(esc(smtype)), ::$(esc(:Val)){$(QuoteNode(child_sym))}) = $(QuoteNode(parent_sym)))
+    return esc(quote
+        Base.@__doc__ Hsm.ancestor(::$smtype, ::Val{$(QuoteNode(child_sym))}) = $(QuoteNode(parent_sym))
+    end)
 end
 
 """
@@ -471,7 +473,11 @@ macro on_event(def)
 
     # Generate the final function using proper Expr construction for better macro hygiene
     # This ensures correct handling of variables from the caller's context
-    return esc(generate_event_handler_impl(smarg, smtype, new_args, full_body, is_any_event, event_name, is_any_state, state_name, method_where_clause))
+    handler_impl = generate_event_handler_impl(smarg, smtype, new_args, full_body, is_any_event, event_name, is_any_state, state_name, method_where_clause)
+    
+    return esc(quote
+        Base.@__doc__ $handler_impl
+    end)
 end
 
 """
@@ -522,7 +528,11 @@ macro on_initial(def)
     full_body = isempty(injected) ? body : Expr(:block, injected..., body)
 
     # Use helper function to generate the handler implementation
-    return esc(generate_state_handler_impl(:on_initial, smarg, smtype, new_args[2], full_body, is_any_state, state_name))
+    handler_impl = generate_state_handler_impl(:on_initial, smarg, smtype, new_args[2], full_body, is_any_state, state_name)
+    
+    return esc(quote
+        Base.@__doc__ $handler_impl
+    end)
 end
 
 """
@@ -575,7 +585,11 @@ macro on_entry(def)
     full_body = isempty(injected) ? body : Expr(:block, injected..., body)
 
     # Use helper function to generate the handler implementation
-    return esc(generate_state_handler_impl(:on_entry, smarg, smtype, new_args[2], full_body, is_any_state, state_name))
+    handler_impl = generate_state_handler_impl(:on_entry, smarg, smtype, new_args[2], full_body, is_any_state, state_name)
+    
+    return esc(quote
+        Base.@__doc__ $handler_impl
+    end)
 end
 
 """
@@ -635,7 +649,11 @@ macro on_exit(def)
     full_body = isempty(injected) ? body : Expr(:block, injected..., body)
 
     # Use helper function to generate the handler implementation
-    return esc(generate_state_handler_impl(:on_exit, smarg, smtype, new_args[2], full_body, is_any_state, state_name))
+    handler_impl = generate_state_handler_impl(:on_exit, smarg, smtype, new_args[2], full_body, is_any_state, state_name)
+    
+    return esc(quote
+        Base.@__doc__ $handler_impl
+    end)
 end
 
 """
@@ -693,7 +711,7 @@ macro abstracthsmdef(abstract_type)
     # Create both the abstract type definition and the interface
     # Note: We use base_type for the interface methods (without parameters)
     return esc(quote
-        abstract type $abstract_type end
+        Base.@__doc__ abstract type $abstract_type end
         $(create_state_machine_abstract_interface(base_type))
     end)
 end
@@ -859,7 +877,7 @@ macro hsmdef(expr)
             end
 
             return esc(quote
-                $modified_struct
+                Base.@__doc__ $modified_struct
                 $additional_constructor
                 $concrete_interface
                 $abstract_interface

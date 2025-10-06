@@ -23,12 +23,49 @@ abstract type AbstractType end
         struct_def = nothing
         constructor_def = nothing
 
+        function find_struct_in_block(block_expr)
+            if block_expr isa Expr
+                for item in block_expr.args
+                    if item isa Expr
+                        if item.head == :struct
+                            return item
+                        elseif item.head == :block
+                            # Recursively search nested blocks
+                            result = find_struct_in_block(item)
+                            if result !== nothing
+                                return result
+                            end
+                        end
+                    end
+                end
+            end
+            return nothing
+        end
+
         for item in expansion.args
             if item isa Expr
                 if item.head == :struct
                     struct_def = item
                 elseif item.head == :function
                     constructor_def = item
+                elseif item.head == :block
+                    # The struct might be inside a block
+                    if struct_def === nothing
+                        struct_def = find_struct_in_block(item)
+                    end
+                elseif item.head == :macrocall && length(item.args) >= 3
+                    # Handle Base.@__doc__ wrapper
+                    if item.args[1] == GlobalRef(Core, Symbol("@__doc__"))
+                        wrapped = item.args[3]
+                        if wrapped isa Expr
+                            if wrapped.head == :struct
+                                struct_def = wrapped
+                            elseif wrapped.head == :block
+                                # The struct is inside a block
+                                struct_def = find_struct_in_block(wrapped)
+                            end
+                        end
+                    end
                 end
             end
         end
