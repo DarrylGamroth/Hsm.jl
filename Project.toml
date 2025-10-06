@@ -1,7 +1,7 @@
 name = "Hsm"
 uuid = "ae4ab49b-60bf-4949-b8fd-fb49b1a0d067"
 authors = ["Darryl Gamroth <dgamroth@rubus.ca>"]
-version = "0.1.0"
+version = "0.1.1"
 
 [deps]
 MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
@@ -9,7 +9,7 @@ ValSplit = "0625e100-946b-11ec-09cd-6328dd093154"
 
 [compat]
 MacroTools = "0.5.16"
-ValSplit = "0.1.1"
+ValSplit = "0.1"
 
 [extras]
 MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"

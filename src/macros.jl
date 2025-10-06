@@ -639,6 +639,66 @@ macro on_exit(def)
 end
 
 """
+    @abstracthsmdef AbstractType
+    @abstracthsmdef AbstractType{T}
+    @abstracthsmdef AbstractType{T,C}
+
+Define an abstract type and create the abstract HSM interface methods for it.
+This macro should be called once for an abstract type before defining concrete types that inherit from it.
+
+The macro defines the abstract type and generates default handlers (on_initial!, on_entry!, on_exit!, on_event!) 
+and ancestor methods that will be shared across all concrete state machine types that inherit from the abstract type.
+
+Supports both simple and parametric abstract types.
+
+# Arguments
+- `AbstractType`: The abstract type name to define (with optional type parameters)
+
+# Examples
+```julia
+# Define a simple abstract type and its interface
+@abstracthsmdef MyStateMachine
+
+# Define a parametric abstract type with one parameter
+@abstracthsmdef MyStateMachine{T}
+
+# Define a parametric abstract type with multiple parameters
+@abstracthsmdef MyStateMachine{T,C}
+
+# Now create concrete types - they will only get field accessors
+@hsmdef mutable struct ConcreteSM1 <: MyStateMachine
+    x::Int
+end
+
+@hsmdef mutable struct ConcreteSM2{T} <: MyStateMachine{T}
+    value::T
+end
+
+# Define state hierarchy on the abstract type (shared across all concrete types)
+@statedef MyStateMachine :StateA
+@statedef MyStateMachine :StateB :StateA
+```
+"""
+macro abstracthsmdef(abstract_type)
+    # Extract the base type name (handle both simple and parametric types)
+    base_type = if abstract_type isa Symbol
+        abstract_type
+    elseif abstract_type isa Expr && abstract_type.head == :curly
+        # Parametric type like MyType{T} or MyType{T,C}
+        abstract_type.args[1]
+    else
+        error("@abstracthsmdef: Expected a type name or parametric type expression, got: $abstract_type")
+    end
+    
+    # Create both the abstract type definition and the interface
+    # Note: We use base_type for the interface methods (without parameters)
+    return esc(quote
+        abstract type $abstract_type end
+        $(create_state_machine_abstract_interface(base_type))
+    end)
+end
+
+"""
     @hsmdef
 
 A macro that inserts two fields (with generated unique names) into a struct
@@ -647,15 +707,34 @@ and adds a constructor that initializes these fields with :Root.
 The macro works with both plain struct definitions and those using @kwdef.
 The field names are generated using gensym() to avoid name collisions.
 
+If the struct inherits from an abstract type, only the concrete interface (field accessors)
+is generated. Use @abstracthsmdef on the abstract type first to create the shared interface.
+
+If the struct does not inherit from an abstract type, both concrete and abstract interfaces
+are generated on the concrete type.
+
 # Examples
 ```julia
-@hsmdef struct MyStruct
+# Standalone state machine (no inheritance)
+@hsmdef mutable struct MyStruct
     x::Int
 end
 
-@hsmdef @kwdef struct MyKwStruct
+# With @kwdef
+@hsmdef @kwdef mutable struct MyKwStruct
     x::Int = 1
     y::String = "default"
+end
+
+# With abstract type inheritance
+@abstracthsmdef MyAbstractSM  # Create abstract type and interface
+
+@hsmdef mutable struct ConcreteSM1 <: MyAbstractSM
+    counter::Int
+end
+
+@hsmdef mutable struct ConcreteSM2 <: MyAbstractSM
+    value::String
 end
 ```
 
@@ -721,7 +800,19 @@ macro hsmdef(expr)
             additional_constructor = create_additional_constructor(struct_name, original_field_count)
 
             # Create the HSM interface methods
-            hsm_interface = create_state_machine_interface(struct_name, current_field, source_field)
+            # Concrete interface: field accessors must use concrete type (unique gensym'd fields)
+            concrete_interface = create_state_machine_concrete_interface(struct_name, current_field, source_field)
+            
+            # Abstract interface: only generate if there's NO abstract parent
+            # If there's an abstract parent, assume @abstracthsmdef was used to define the interface
+            abstract_type = get_abstract_type(struct_def)
+            abstract_interface = if abstract_type === nothing
+                # No parent - generate abstract interface on the concrete type
+                create_state_machine_abstract_interface(struct_name)
+            else
+                # Has abstract parent - skip (should be defined with @abstracthsmdef)
+                Expr(:block)
+            end
 
             # Return the modified expansion with all components
             result = Expr(:block)
@@ -733,7 +824,8 @@ macro hsmdef(expr)
                 push!(result.args, constructor)
             end
             push!(result.args, additional_constructor)
-            push!(result.args, hsm_interface)
+            push!(result.args, concrete_interface)
+            push!(result.args, abstract_interface)
 
             return esc(result)
         end
@@ -752,12 +844,25 @@ macro hsmdef(expr)
             additional_constructor = create_additional_constructor(struct_name, original_field_count)
 
             # Create the HSM interface methods
-            hsm_interface = create_state_machine_interface(struct_name, current_field, source_field)
+            # Concrete interface: field accessors must use concrete type (unique gensym'd fields)
+            concrete_interface = create_state_machine_concrete_interface(struct_name, current_field, source_field)
+            
+            # Abstract interface: only generate if there's NO abstract parent
+            # If there's an abstract parent, assume @abstracthsmdef was used to define the interface
+            abstract_type = get_abstract_type(expr)
+            abstract_interface = if abstract_type === nothing
+                # No parent - generate abstract interface on the concrete type
+                create_state_machine_abstract_interface(struct_name)
+            else
+                # Has abstract parent - skip (should be defined with @abstracthsmdef)
+                Expr(:block)
+            end
 
             return esc(quote
                 $modified_struct
                 $additional_constructor
-                $hsm_interface
+                $concrete_interface
+                $abstract_interface
             end)
         end
     end
@@ -800,6 +905,24 @@ function get_struct_name(struct_expr)
     end
 
     error("Could not extract struct name from: $name_expr")
+end
+
+function get_abstract_type(struct_expr)
+    name_expr = struct_expr.args[2]
+    
+    if name_expr isa Expr && name_expr.head == :<:
+        # Extract the right side (abstract type)
+        abstract_type = name_expr.args[2]
+        
+        # If it's parametric like AbstractType{T,C}, extract just the base name
+        if abstract_type isa Expr && abstract_type.head == :curly
+            return abstract_type.args[1]  # Returns AbstractType
+        else
+            return abstract_type  # Returns AbstractType
+        end
+    end
+    
+    return nothing  # No inheritance
 end
 
 function count_original_fields(struct_expr)
@@ -845,12 +968,12 @@ function create_additional_constructor(struct_name, field_count)
 end
 
 """
-    create_state_machine_interface(struct_name, current_field, source_field)
+    create_state_machine_concrete_interface(struct_name, current_field, source_field)
 
-Create Expr block defining the Hsm interface methods for a struct with generated field names.
-This maintains proper macro hygiene by returning expressions instead of using @eval.
+Create Expr block defining the Hsm concrete interface methods that access struct-specific fields.
+These methods must be defined on the concrete type because each struct has unique gensym'd field names.
 """
-function create_state_machine_interface(struct_name, current_field, source_field)
+function create_state_machine_concrete_interface(struct_name, current_field, source_field)
     # Create the interface methods as expressions
     interface_methods = Expr(:block)
 
@@ -890,6 +1013,19 @@ function create_state_machine_interface(struct_name, current_field, source_field
         )
     )
 
+    return interface_methods
+end
+
+"""
+    create_state_machine_abstract_interface(interface_type)
+
+Create Expr block defining the Hsm abstract interface methods (default handlers and ancestor).
+These methods can be defined on an abstract type to be shared across multiple concrete implementations.
+"""
+function create_state_machine_abstract_interface(interface_type)
+    # Create the interface methods as expressions
+    interface_methods = Expr(:block)
+
     # Default initial handler
     push!(interface_methods.args,
         Expr(:macrocall,
@@ -897,7 +1033,7 @@ function create_state_machine_interface(struct_name, current_field, source_field
             LineNumberNode(@__LINE__, @__FILE__),
             Expr(:function,
                 Expr(:call, :(Hsm.on_initial!),
-                    Expr(:(::), :sm, struct_name),
+                    Expr(:(::), :sm, interface_type),
                     Expr(:call, :Val, Expr(:(::), :state, :Symbol))),
                 :(Hsm.EventHandled)
             )
@@ -911,7 +1047,7 @@ function create_state_machine_interface(struct_name, current_field, source_field
             LineNumberNode(@__LINE__, @__FILE__),
             Expr(:function,
                 Expr(:call, :(Hsm.on_entry!),
-                    Expr(:(::), :sm, struct_name),
+                    Expr(:(::), :sm, interface_type),
                     Expr(:call, :Val, Expr(:(::), :state, :Symbol))),
                 :nothing
             )
@@ -925,7 +1061,7 @@ function create_state_machine_interface(struct_name, current_field, source_field
             LineNumberNode(@__LINE__, @__FILE__),
             Expr(:function,
                 Expr(:call, :(Hsm.on_exit!),
-                    Expr(:(::), :sm, struct_name),
+                    Expr(:(::), :sm, interface_type),
                     Expr(:call, :Val, Expr(:(::), :state, :Symbol))),
                 :nothing
             )
@@ -940,7 +1076,7 @@ function create_state_machine_interface(struct_name, current_field, source_field
             Expr(:function,
                 Expr(:where,
                     Expr(:call, :(Hsm.on_event!),
-                        Expr(:(::), :sm, struct_name),
+                        Expr(:(::), :sm, interface_type),
                         Expr(:call, :Val, Expr(:(::), :state, :Symbol)),
                         Expr(:call, :Val, Expr(:(::), :event, :Symbol)),
                         Expr(:(::), :arg, :T)),
@@ -957,12 +1093,12 @@ function create_state_machine_interface(struct_name, current_field, source_field
             LineNumberNode(@__LINE__, @__FILE__),
             Expr(:function,
                 Expr(:call, :(Hsm.ancestor),
-                    Expr(:(::), :sm, struct_name),
+                    Expr(:(::), :sm, interface_type),
                     Expr(:call, :Val, Expr(:(::), :state, :Symbol))),
                 Expr(:block,
                     Expr(:call, :throw,
                         Expr(:call, :HsmStateError,
-                            Expr(:string, "No ancestor defined for state ", :state, " in ", struct_name, ". Use the @statedef macro to define state relationships."))),
+                            Expr(:string, "No ancestor defined for state ", :state, " in ", interface_type, ". Use the @statedef macro to define state relationships."))),
                     Expr(:return, QuoteNode(:Root))
                 )
             )
@@ -970,11 +1106,11 @@ function create_state_machine_interface(struct_name, current_field, source_field
     )
 
     # Special case: Root state's ancestor is Root itself
-    # Hsm.ancestor(sm::$(struct_name), Val(:Root)) = Root
+    # Hsm.ancestor(sm::InterfaceType, Val(:Root)) = Root
     push!(interface_methods.args,
         Expr(:function,
             Expr(:call, :(Hsm.ancestor),
-                Expr(:(::), :sm, struct_name),
+                Expr(:(::), :sm, interface_type),
                 Expr(:(::), Expr(:curly, :Val, QuoteNode(:Root)))),
             QuoteNode(:Root)
         )

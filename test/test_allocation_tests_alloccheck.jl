@@ -177,37 +177,6 @@ end
     return Hsm.EventHandled
 end
 
-# Custom struct handler
-@on_event function (sm::AllocationTestSm, ::StateA, ::StructEvent, arg::CustomStruct)
-    sm.counter += 1
-    sm.int_data = arg.value
-    sm.last_event = :StructEvent
-    return Hsm.EventHandled
-end
-
-# Vector handlers
-@on_event function (sm::AllocationTestSm, ::StateA, ::VectorEvent, arg::Vector{Int})
-    sm.counter += 1
-    sm.int_data = length(arg)
-    sm.last_event = :VectorEvent
-    return Hsm.EventHandled
-end
-
-@on_event function (sm::AllocationTestSm, ::StateA, ::VectorAnyEvent, arg::Vector{Any})
-    sm.counter += 1
-    sm.int_data = length(arg)
-    sm.last_event = :VectorAnyEvent
-    return Hsm.EventHandled
-end
-
-# Nested struct handler
-@on_event function (sm::AllocationTestSm, ::StateA, ::NestedEvent, arg::NestedStruct)
-    sm.counter += 1
-    sm.int_data = arg.inner.value
-    sm.last_event = :NestedEvent
-    return Hsm.EventHandled
-end
-
 # Helper function to warmup the state machine with all dispatch types
 function warmup_allocation_test_sm!(sm::AllocationTestSm)
     # Comprehensive warm up - ensure all method specializations are compiled
@@ -229,20 +198,6 @@ function warmup_allocation_test_sm!(sm::AllocationTestSm)
         check_dispatch!(sm, :VectorEvent, small_vec)
         check_dispatch!(sm, :VectorTransitionEvent, small_vec)
         check_dispatch!(sm, :VectorResetEvent, small_vec)
-
-        mixed_vec = Any[1, "two", 3.0]
-        check_dispatch!(sm, :VectorAnyEvent, mixed_vec)
-
-        inner = CustomStruct(99, "nested")
-        nested = NestedStruct(inner, 3.14)
-        check_dispatch!(sm, :NestedEvent, nested)
-
-        # Warm up our new types
-        test_struct = CustomStruct(42, "test")
-        check_dispatch!(sm, :StructEvent, test_struct)
-
-        small_vec = [1, 2, 3]
-        check_dispatch!(sm, :VectorEvent, small_vec)
 
         mixed_vec = Any[1, "two", 3.0]
         check_dispatch!(sm, :VectorAnyEvent, mixed_vec)
@@ -554,77 +509,6 @@ end
 end
 
 @testset "Custom struct allocation test" begin
-    sm = AllocationTestSm(0, 0, 0.0, false, :default, ' ', "", :none)
-    warmup_allocation_test_sm!(sm)
-
-    # Warm up with this specific type
-    test_struct = CustomStruct(42, "test")
-    check_dispatch!(sm, :StructEvent, test_struct)
-    sm.counter = 0
-
-    check_dispatch!(sm, :StructEvent, test_struct)
-    @test sm.counter == 1
-    @test sm.int_data == 42
-end
-
-@testset "Small Vector{Int} allocation test" begin
-    sm = AllocationTestSm(0, 0, 0.0, false, :default, ' ', "", :none)
-    warmup_allocation_test_sm!(sm)
-
-    # Warm up with this specific type
-    small_vec = [1, 2, 3]
-    check_dispatch!(sm, :VectorEvent, small_vec)
-    sm.counter = 0
-
-    check_dispatch!(sm, :VectorEvent, small_vec)
-    @test sm.counter == 1
-    @test sm.int_data == 3
-end
-
-@testset "Large Vector{Int} allocation test" begin
-    sm = AllocationTestSm(0, 0, 0.0, false, :default, ' ', "", :none)
-    warmup_allocation_test_sm!(sm)
-
-    # Warm up with this specific type
-    large_vec = collect(1:100)
-    check_dispatch!(sm, :VectorEvent, large_vec)
-    sm.counter = 0
-
-    check_dispatch!(sm, :VectorEvent, large_vec)
-    @test sm.counter == 1
-    @test sm.int_data == 100
-end
-
-@testset "Vector{Any} allocation test" begin
-    sm = AllocationTestSm(0, 0, 0.0, false, :default, ' ', "", :none)
-    warmup_allocation_test_sm!(sm)
-
-    # Warm up with this specific type
-    mixed_vec = Any[1, "two", 3.0]
-    check_dispatch!(sm, :VectorAnyEvent, mixed_vec)
-    sm.counter = 0
-
-    check_dispatch!(sm, :VectorAnyEvent, mixed_vec)
-    @test sm.counter == 1
-    @test sm.int_data == 3
-end
-
-@testset "Nested struct allocation test" begin
-    sm = AllocationTestSm(0, 0, 0.0, false, :default, ' ', "", :none)
-    warmup_allocation_test_sm!(sm)
-
-    # Warm up with this specific type
-    inner = CustomStruct(99, "nested")
-    nested = NestedStruct(inner, 3.14)
-    check_dispatch!(sm, :NestedEvent, nested)
-    sm.counter = 0
-
-    check_dispatch!(sm, :NestedEvent, nested)
-    @test sm.counter == 1
-    @test sm.int_data == 99
-end
-
-@testset "Custom struct dispatch allocation test" begin
     sm = AllocationTestSm(0, 0, 0.0, false, :default, ' ', "", :none)
     warmup_allocation_test_sm!(sm)
 

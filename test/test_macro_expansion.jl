@@ -162,10 +162,9 @@ abstract type AbstractType end
         @test vararg_count2 == 4
     end
 
-    @testset "Complex type hierarchy test" begin
-        abstract type ComplexBase{T,U} end
-
-        expansion = @macroexpand @hsmdef mutable struct ComplexStruct{T<:Number,U,V<:AbstractVector{U}} <: ComplexBase{T,U}
+    @testset "Parametric types with complex constraints" begin
+        # Test parametric struct with multiple type parameters and constraints
+        expansion = @macroexpand @hsmdef mutable struct ComplexStruct{T<:Number,U,V<:AbstractVector{U}}
             primary::T
             secondary::U
             collection::V

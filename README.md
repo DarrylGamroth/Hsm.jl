@@ -17,10 +17,12 @@ Hsm.jl provides a framework for implementing hierarchical state machines (HSMs) 
 - **No dynamic dispatch**: All event handlers use compile-time dispatch via Val types
 - **Clean macro-based syntax**: Simple macros for defining state machine behavior
 - **Automatic initialization**: State machines are auto-initialized when created
+- **Abstract type support**: Define state machine families with shared interfaces using `@abstracthsmdef`
 - **Modular organization**: Support for distributing state handlers across multiple files
 - **Default event handlers**: Support for catch-all handlers that process any unhandled event
 - **Event tracking**: Automatic tracking of the current event being processed
 - **Type-safe default handlers**: Each state machine gets its own set of type-specific default handlers
+- **Polymorphism**: Multiple concrete state machine types can share a common abstract interface
 
 ## Installation
 
@@ -29,12 +31,14 @@ using Pkg
 Pkg.add("Hsm")
 ```
 
-## Basic Example
+## Quick Start
+
+### Simple State Machine
 
 ```julia
 using Hsm
 
-# Define state machine using the simplified approach
+# Define a state machine with @hsmdef
 @hsmdef mutable struct LightSwitch
     power_on::Bool
 end
@@ -70,12 +74,64 @@ Hsm.dispatch!(sm, :Toggle)  # Transitions to On
 Hsm.dispatch!(sm, :UnknownEvent)  # Will be caught by the default handler
 ```
 
+### Abstract State Machines
+
+Define families of related state machines that share common structure:
+
+```julia
+using Hsm
+
+# Define an abstract state machine type with shared interface
+@abstracthsmdef VehicleController
+
+# Define shared state hierarchy (applies to all concrete types)
+@statedef VehicleController :Stopped
+@statedef VehicleController :Moving
+
+# Define shared event handlers
+@on_event function(sm::VehicleController, ::Stopped, ::Start, _)
+    return Hsm.transition!(sm, :Moving)
+end
+
+# Create concrete types - they inherit the interface
+@hsmdef mutable struct Car <: VehicleController
+    speed::Float64
+    fuel::Float64
+end
+
+@hsmdef mutable struct Truck <: VehicleController
+    speed::Float64
+    cargo::Float64
+end
+
+# Add type-specific behavior
+@on_event function(sm::Car, ::Moving, ::Accelerate, amount::Float64)
+    sm.speed += amount
+    sm.fuel -= amount * 0.1
+    return Hsm.EventHandled
+end
+
+@on_event function(sm::Truck, ::Moving, ::Accelerate, amount::Float64)
+    sm.speed += amount / (1 + sm.cargo / 1000)
+    sm.fuel -= amount * 0.2
+    return Hsm.EventHandled
+end
+
+# Use polymorphically
+vehicles = VehicleController[Car(0.0, 100.0), Truck(0.0, 5000.0)]
+for vehicle in vehicles
+    Hsm.dispatch!(vehicle, :Start)
+    Hsm.dispatch!(vehicle, :Accelerate, 20.0)
+end
+```
+
 ## Examples
 
 The `example/` directory contains various examples:
 
-- `example.jl`: Traditional approach example
-- `simplest_example.jl`: Simplified example
+- `simplest_example.jl`: Basic state machine with a simple hierarchy
+- `abstract_example.jl`: Using `@abstracthsmdef` to create a family of related state machines
+- `example.jl`: More complex hierarchical state machine example
 
 ## Advanced Features
 
@@ -85,6 +141,9 @@ The `example/` directory contains various examples:
 - Complex state hierarchies with nested states
 - Default event handlers with the `Any` keyword
 - Generic entry/exit handlers using `::Any` state type
+- Abstract state machine types with `@abstracthsmdef`
+- Shared state hierarchies and handlers across multiple concrete types
+- Type-specific specialization of event handlers
 
 ## Generic Handlers with `Any`
 
@@ -132,15 +191,69 @@ Key points about generic entry/exit handlers:
 - In hierarchical transitions, handlers are called in the appropriate order (exit: specific to generic, entry: generic to specific)
 - Useful for logging, state tracking, and centralized state management
 
-## Multiple State Machine Considerations
+## Defining State Machines
 
-Hsm.jl supports using multiple state machine types in the same Julia session. Each state machine defined with the `@hsmdef` macro gets its own type-specific default handlers, ensuring no method dispatch ambiguities between different state machine types.
+Hsm.jl provides two macros for defining state machines:
 
-### Best Practices for Multiple State Machines
+### `@hsmdef` - Standalone State Machines
 
-1. **Always use @hsmdef**: Define all state machines using the `@hsmdef` macro to ensure proper handler generation.
-2. **Be consistent**: Either define ALL necessary handlers for your state machines, or define NONE and rely on defaults.
-3. **Document dependencies**: Make it clear in your state machine documentation whether it requires explicit handlers or relies on defaults.
+Use `@hsmdef` for standalone state machines:
+
+```julia
+@hsmdef mutable struct MyStateMachine
+    counter::Int
+    status::String
+end
+```
+
+This macro:
+- Adds hidden fields for state tracking (using `gensym` to avoid name collisions)
+- Generates field accessor methods (`current`, `source`, etc.)
+- Generates default HSM interface methods
+
+### `@abstracthsmdef` - State Machine Families
+
+Use `@abstracthsmdef` to create families of related state machines:
+
+```julia
+# Define the abstract type and shared interface
+@abstracthsmdef AbstractController
+
+# Define shared state hierarchy
+@statedef AbstractController :Idle
+@statedef AbstractController :Active
+
+# Create concrete implementations
+@hsmdef mutable struct Controller1 <: AbstractController
+    value::Int
+end
+
+@hsmdef mutable struct Controller2 <: AbstractController
+    data::String
+end
+```
+
+Key differences:
+- `@abstracthsmdef` defines an abstract type and creates the HSM interface **once**
+- `@hsmdef` with inheritance (`<: AbstractType`) only adds field accessors
+- Concrete types inherit the interface from the abstract type
+- All concrete types share the same state hierarchy and base event handlers
+- Each concrete type can add specialized event handlers
+
+Benefits of abstract state machines:
+- **Code reuse**: Define state hierarchy and common handlers once
+- **Polymorphism**: Store different concrete types in the same collection
+- **Maintainability**: Changes to shared behavior happen in one place
+- **Type safety**: All concrete types conform to the same interface
+
+### Best Practices
+
+1. **Always use @hsmdef or @abstracthsmdef**: These macros ensure proper handler generation
+2. **Choose the right macro**: 
+   - Use `@hsmdef` for standalone state machines
+   - Use `@abstracthsmdef` when you need multiple related types
+3. **State machines must be mutable**: Use `mutable struct`, not `struct`
+4. **Document state hierarchies**: Make state relationships clear in comments or documentation
 
 ## Error Handling
 

@@ -14,4 +14,5 @@ using ValSplit
     include("test_on_event_kwargs.jl")
     include("test_any_state_handlers.jl")
     include("test_allocation_tests_alloccheck.jl")
+    include("test_abstract_type.jl")
 end

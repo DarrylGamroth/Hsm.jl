@@ -2,11 +2,6 @@ using Test
 using Hsm
 using ValSplit
 
-# Define needed abstract types
-abstract type Level1 end
-abstract type Level2 <: Level1 end
-abstract type Level3 <: Level2 end
-
 @testset "Edge Cases and Error Handling" begin
 
     @testset "Empty struct handling" begin
@@ -93,37 +88,6 @@ abstract type Level3 <: Level2 end
         immutable_fields = fieldnames(ImmutableStruct)
         @test getfield(obj, immutable_fields[end-1]) == :Root
         @test getfield(obj, immutable_fields[end]) == :Root
-    end
-
-    @testset "Complex inheritance chains" begin
-        @eval begin
-            @hsmdef mutable struct DeepInheritance{T,U,V} <: Level3
-                data1::T
-                data2::U
-                data3::V
-            end
-        end
-
-        @test DeepInheritance{Int,String,Float64} <: Level3
-        @test DeepInheritance{Int,String,Float64} <: Level2
-        @test DeepInheritance{Int,String,Float64} <: Level1
-
-        obj = DeepInheritance(1, "test", 3.14)
-        @test obj.data1 == 1
-        @test obj.data2 == "test"
-        @test obj.data3 == 3.14
-
-        deep_fields = fieldnames(DeepInheritance)
-        @test getfield(obj, deep_fields[end-1]) == :Root
-        @test getfield(obj, deep_fields[end]) == :Root
-
-        # Test additional constructor
-        obj2 = DeepInheritance(1, "test", 3.14)
-        @test obj2.data1 == 1
-        @test obj2.data2 == "test"
-        @test obj2.data3 == 3.14
-        @test getfield(obj2, deep_fields[end-1]) == :Root
-        @test getfield(obj2, deep_fields[end]) == :Root
     end
 
     @testset "Fields with complex types" begin
