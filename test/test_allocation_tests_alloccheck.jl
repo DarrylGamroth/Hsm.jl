@@ -648,3 +648,222 @@ end
     @test sm.counter == 0
     @test sm.int_data == 5
 end
+
+# Abstract state machine inheritance tests
+@abstracthsmdef AbstractVehicleController
+
+@hsmdef mutable struct CarController <: AbstractVehicleController
+    speed::Float64
+    gear::Int
+    counter::Int
+end
+
+@hsmdef mutable struct TruckController <: AbstractVehicleController
+    speed::Float64
+    load::Float64
+    counter::Int
+end
+
+# Define state hierarchy for vehicles
+@statedef AbstractVehicleController :Idle :Root
+@statedef AbstractVehicleController :Moving :Root
+@statedef AbstractVehicleController :Stopped :Root
+
+# Shared handlers for all vehicle types
+@on_initial function (sm::AbstractVehicleController, ::Root)
+    return Hsm.transition!(sm, :Idle)
+end
+
+@on_event function (sm::AbstractVehicleController, ::Idle, ::StartEngine, arg::Int)
+    sm.counter += 1
+    return Hsm.transition!(sm, :Moving)
+end
+
+@on_event function (sm::AbstractVehicleController, ::Moving, ::StopEngine, arg::Int)
+    sm.counter += 1
+    return Hsm.transition!(sm, :Stopped)
+end
+
+@on_event function (sm::AbstractVehicleController, ::Stopped, ::RestartEngine, arg::Int)
+    sm.counter = 0
+    return Hsm.transition!(sm, :Idle)
+end
+
+# Car-specific handlers
+@on_event function (sm::CarController, ::Moving, ::ShiftGear, arg::Int)
+    sm.gear = arg
+    sm.counter += 1
+    return Hsm.EventHandled
+end
+
+@on_event function (sm::CarController, ::Moving, ::Accelerate, arg::Float64)
+    sm.speed += arg
+    sm.counter += 1
+    return Hsm.EventHandled
+end
+
+# Truck-specific handlers
+@on_event function (sm::TruckController, ::Moving, ::AdjustLoad, arg::Float64)
+    sm.load = arg
+    sm.counter += 1
+    return Hsm.EventHandled
+end
+
+@on_event function (sm::TruckController, ::Moving, ::Accelerate, arg::Float64)
+    # Trucks accelerate slower with load
+    sm.speed += arg / (1 + sm.load / 100)
+    sm.counter += 1
+    return Hsm.EventHandled
+end
+
+# Helper function for warming up abstract vehicle controllers
+function warmup_vehicle_controller!(sm::AbstractVehicleController)
+    for _ in 1:3
+        check_dispatch!(sm, :StartEngine, 1)
+        check_dispatch!(sm, :StopEngine, 1)
+        check_dispatch!(sm, :RestartEngine, 1)
+    end
+    sm.counter = 0
+end
+
+function warmup_car_controller!(sm::CarController)
+    warmup_vehicle_controller!(sm)
+    for _ in 1:3
+        check_dispatch!(sm, :StartEngine, 1)
+        check_dispatch!(sm, :ShiftGear, 3)
+        check_dispatch!(sm, :Accelerate, 10.0)
+        check_dispatch!(sm, :StopEngine, 1)
+        check_dispatch!(sm, :RestartEngine, 1)
+    end
+    sm.counter = 0
+end
+
+function warmup_truck_controller!(sm::TruckController)
+    warmup_vehicle_controller!(sm)
+    for _ in 1:3
+        check_dispatch!(sm, :StartEngine, 1)
+        check_dispatch!(sm, :AdjustLoad, 50.0)
+        check_dispatch!(sm, :Accelerate, 10.0)
+        check_dispatch!(sm, :StopEngine, 1)
+        check_dispatch!(sm, :RestartEngine, 1)
+    end
+    sm.counter = 0
+end
+
+@testset "Abstract inheritance - Car shared handler allocation test" begin
+    sm = CarController(0.0, 1, 0)
+    warmup_car_controller!(sm)
+
+    check_dispatch!(sm, :StartEngine, 1)
+    @test Hsm.current(sm) == :Moving
+    @test sm.counter == 1
+end
+
+@testset "Abstract inheritance - Car specific handler allocation test" begin
+    sm = CarController(0.0, 1, 0)
+    warmup_car_controller!(sm)
+    
+    # Move to Moving state first
+    check_dispatch!(sm, :StartEngine, 1)
+    sm.counter = 0
+
+    check_dispatch!(sm, :ShiftGear, 5)
+    @test sm.gear == 5
+    @test sm.counter == 1
+end
+
+@testset "Abstract inheritance - Car accelerate allocation test" begin
+    sm = CarController(0.0, 1, 0)
+    warmup_car_controller!(sm)
+    
+    # Move to Moving state first
+    check_dispatch!(sm, :StartEngine, 1)
+    sm.counter = 0
+    sm.speed = 0.0
+
+    check_dispatch!(sm, :Accelerate, 25.5)
+    @test sm.speed == 25.5
+    @test sm.counter == 1
+end
+
+@testset "Abstract inheritance - Truck shared handler allocation test" begin
+    sm = TruckController(0.0, 0.0, 0)
+    warmup_truck_controller!(sm)
+
+    check_dispatch!(sm, :StartEngine, 1)
+    @test Hsm.current(sm) == :Moving
+    @test sm.counter == 1
+end
+
+@testset "Abstract inheritance - Truck specific handler allocation test" begin
+    sm = TruckController(0.0, 0.0, 0)
+    warmup_truck_controller!(sm)
+    
+    # Move to Moving state first
+    check_dispatch!(sm, :StartEngine, 1)
+    sm.counter = 0
+
+    check_dispatch!(sm, :AdjustLoad, 75.0)
+    @test sm.load == 75.0
+    @test sm.counter == 1
+end
+
+@testset "Abstract inheritance - Truck accelerate with load allocation test" begin
+    sm = TruckController(0.0, 50.0, 0)
+    warmup_truck_controller!(sm)
+    
+    # Move to Moving state first
+    check_dispatch!(sm, :StartEngine, 1)
+    sm.counter = 0
+    sm.speed = 0.0
+
+    # With 50.0 load: acceleration = 20.0 / (1 + 50/100) = 20.0 / 1.5 ≈ 13.333...
+    check_dispatch!(sm, :Accelerate, 20.0)
+    @test sm.speed ≈ 20.0 / 1.5
+    @test sm.counter == 1
+end
+
+@testset "Abstract inheritance - Polymorphic dispatch allocation test" begin
+    car = CarController(0.0, 1, 0)
+    truck = TruckController(0.0, 0.0, 0)
+    
+    warmup_car_controller!(car)
+    warmup_truck_controller!(truck)
+
+    # Test polymorphic dispatch - same event, different implementations
+    vehicles = AbstractVehicleController[car, truck]
+    
+    for vehicle in vehicles
+        check_dispatch!(vehicle, :StartEngine, 1)
+        @test Hsm.current(vehicle) == :Moving
+    end
+    
+    @test car.counter == 1
+    @test truck.counter == 1
+end
+
+@testset "Abstract inheritance - State transition allocation test" begin
+    sm = CarController(0.0, 1, 0)
+    warmup_car_controller!(sm)
+
+    check_dispatch!(sm, :StartEngine, 1)
+    @test Hsm.current(sm) == :Moving
+    
+    check_dispatch!(sm, :StopEngine, 1)
+    @test Hsm.current(sm) == :Stopped
+    @test sm.counter == 2
+end
+
+@testset "Abstract inheritance - Reset transition allocation test" begin
+    sm = TruckController(0.0, 100.0, 0)
+    warmup_truck_controller!(sm)
+
+    check_dispatch!(sm, :StartEngine, 1)
+    check_dispatch!(sm, :StopEngine, 1)
+    @test Hsm.current(sm) == :Stopped
+    @test sm.counter == 2
+
+    check_dispatch!(sm, :RestartEngine, 1)
+    @test Hsm.current(sm) == :Idle
+    @test sm.counter == 0
+end
