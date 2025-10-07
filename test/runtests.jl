@@ -16,4 +16,5 @@ using ValSplit
     include("test_allocation_tests_alloccheck.jl")
     include("test_abstract_type.jl")
     include("test_docstrings.jl")
+    include("test_super_macro.jl")
 end

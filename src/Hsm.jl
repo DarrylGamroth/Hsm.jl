@@ -9,7 +9,7 @@ export EventHandled, EventNotHandled
 export current, current!, source, source!, ancestor
 export on_initial!, on_entry!, on_exit!, on_event!
 export transition!, dispatch!
-export @on_event, @on_initial, @on_entry, @on_exit, @hsmdef, @abstracthsmdef, @statedef
+export @on_event, @on_initial, @on_entry, @on_exit, @hsmdef, @abstracthsmdef, @statedef, @super
 export HsmMacroError, HsmStateError, HsmEventError
 export ValSplit
 

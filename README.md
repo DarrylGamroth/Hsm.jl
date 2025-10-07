@@ -144,6 +144,7 @@ The `example/` directory contains various examples:
 - Abstract state machine types with `@abstracthsmdef`
 - Shared state hierarchies and handlers across multiple concrete types
 - Type-specific specialization of event handlers
+- Calling abstract parent handlers with `@super` to extend behavior
 
 ## Generic Handlers with `Any`
 
@@ -190,6 +191,63 @@ Key points about generic entry/exit handlers:
 - Specific state handlers take precedence over generic handlers
 - In hierarchical transitions, handlers are called in the appropriate order (exit: specific to generic, entry: generic to specific)
 - Useful for logging, state tracking, and centralized state management
+
+## Extending Abstract Handlers with `@super`
+
+When using abstract state machines, concrete types can extend the behavior of their abstract parent handlers using the `@super` macro. This allows you to:
+
+- Call the parent handler first, then add type-specific logic
+- Reuse common behavior defined in the abstract type
+- Build layered functionality across the type hierarchy
+
+### Usage
+
+```julia
+@abstracthsmdef AbstractVehicle
+
+# Define abstract handler
+@on_event function(sm::AbstractVehicle, state::Stopped, event::StartEngine, data)
+    sm.engine_running = true
+    println("Engine started")
+    return Hsm.EventHandled
+end
+
+@hsmdef mutable struct Car <: AbstractVehicle
+    engine_running::Bool
+    wheels::Int
+end
+
+# Concrete handler extends abstract behavior
+@on_event function(sm::Car, state::Stopped, event::StartEngine, data)
+    # Call the abstract handler first
+    result = @super on_event sm state event data
+    
+    # Add car-specific logic
+    println("Car has $(sm.wheels) wheels ready")
+    sm.wheels = data
+    return result
+end
+```
+
+### Syntax
+
+The `@super` macro has different forms depending on the handler type:
+
+```julia
+# For event handlers
+@super on_event sm state event data
+
+# For state handlers (on_initial, on_entry, on_exit)
+@super on_initial sm state
+@super on_entry sm state
+@super on_exit sm state
+```
+
+### Notes
+
+- The `state` and `event` variables must be the parameter names from your handler definition
+- Only calls the immediate parent type's handler (not grandparent types)
+- Works with all handler types: `on_event`, `on_initial`, `on_entry`, `on_exit`
 
 ## Defining State Machines
 

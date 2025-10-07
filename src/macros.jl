@@ -1157,3 +1157,128 @@ function validate_mutable_struct(struct_expr)
         error("must be explicitly declared as mutable")
     end
 end
+
+"""
+    @super on_event sm state event data
+    @super on_initial sm state
+    @super on_entry sm state
+    @super on_exit sm state
+
+Invoke the parent (abstract) type's handler for the current state/event.
+This allows concrete types to extend the behavior of their abstract parent handlers.
+
+The macro automatically determines the abstract parent type using `supertype(typeof(sm))`
+and invokes the corresponding handler method defined on that type.
+
+# Arguments
+- `handler_kind`: The kind of handler to invoke (`on_event`, `on_initial`, `on_entry`, or `on_exit`)
+- `sm`: The state machine instance
+- `state`: The state symbol variable (already bound by the handler macro, e.g., `state::Stopped` → `state = :Stopped`)
+- `event`: The event symbol variable (only for `on_event`)
+- `data`: The event data argument (only for `on_event`)
+
+# Examples
+```julia
+@abstracthsmdef AbstractVehicle
+
+# Abstract handler
+@on_event function(sm::AbstractVehicle, state::Stopped, event::StartEngine, data)
+    sm.engine_running = true
+    return Hsm.EventHandled
+end
+
+@hsmdef mutable struct Car <: AbstractVehicle
+    engine_running::Bool
+    wheels::Int
+end
+
+# Concrete handler that extends abstract behavior
+@on_event function(sm::Car, state::Stopped, event::StartEngine, data)
+    # Call the abstract handler first
+    result = @super on_event sm state event data
+    
+    # Add car-specific logic
+    println("Car has \$(sm.wheels) wheels ready")
+    return result
+end
+
+# Entry handler example
+@on_entry function(sm::AbstractVehicle, state::Running)
+    println("Vehicle entering Running state")
+end
+
+@on_entry function(sm::Car, state::Running)
+    @super on_entry sm state  # Call abstract handler
+    println("Car-specific entry logic")
+end
+```
+
+# Notes
+- The state and event variables are already bound to Symbol values by the handler macros
+- If no abstract handler is defined, Julia will throw a MethodError
+- The macro only invokes the immediate parent type's handler (no chaining through multiple levels)
+"""
+macro super(handler_kind, args...)
+    # Add source location for better error messages
+    line = __source__.line
+    file = String(__source__.file)
+    error_prefix = "@super (line $line in $file)"
+
+    # Validate handler kind
+    if !(handler_kind isa Symbol)
+        throw(ArgumentError("$error_prefix: First argument must be a handler kind symbol (on_event, on_initial, on_entry, or on_exit)"))
+    end
+
+    valid_handlers = [:on_event, :on_initial, :on_entry, :on_exit]
+    if !(handler_kind in valid_handlers)
+        throw(ArgumentError("$error_prefix: Unknown handler kind :$handler_kind. Must be one of: $(join(valid_handlers, ", "))"))
+    end
+
+    # Determine handler function name
+    handler_func = Symbol(string(handler_kind) * "!")
+
+    # Parse arguments based on handler kind
+    if handler_kind == :on_event
+        # Expect: sm state event data
+        if length(args) != 4
+            throw(ArgumentError("$error_prefix: on_event requires 4 arguments (sm, state, event, data), got $(length(args))"))
+        end
+        sm_var = args[1]
+        state_var = args[2]
+        event_var = args[3]
+        data_var = args[4]
+
+        return esc(quote
+            let abstract_type = supertype(typeof($sm_var)),
+                state_type = typeof(Val($state_var)),
+                event_type = typeof(Val($event_var)),
+                data_type = typeof($data_var)
+                Base.invoke(
+                    Hsm.$handler_func,
+                    Tuple{abstract_type, state_type, event_type, data_type},
+                    $sm_var, Val($state_var), Val($event_var), $data_var
+                )
+            end
+        end)
+    elseif handler_kind in [:on_initial, :on_entry, :on_exit]
+        # Expect: sm state
+        if length(args) != 2
+            throw(ArgumentError("$error_prefix: $handler_kind requires 2 arguments (sm, state), got $(length(args))"))
+        end
+        sm_var = args[1]
+        state_var = args[2]
+
+        return esc(quote
+            let abstract_type = supertype(typeof($sm_var)),
+                state_type = typeof(Val($state_var))
+                Base.invoke(
+                    Hsm.$handler_func,
+                    Tuple{abstract_type, state_type},
+                    $sm_var, Val($state_var)
+                )
+            end
+        end)
+    else
+        throw(ArgumentError("$error_prefix: Internal error - unhandled handler kind :$handler_kind"))
+    end
+end
