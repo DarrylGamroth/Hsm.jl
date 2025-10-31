@@ -196,7 +196,7 @@ using Hsm
         end
 
         widget = Widget(0)
-        
+
         @test_throws MethodError Hsm.dispatch!(widget, :MissingEvent, 1)
     end
 
@@ -270,5 +270,64 @@ using Hsm
 
         @test app.state_value == :Running
         @test app.event_value == :Update
+    end
+
+            @testset "@super with minimal abstract handlers" begin
+        # Test that @super works when abstract handlers exist but do minimal work
+        # This tests the normal case where abstract type provides base behavior
+        @abstracthsmdef AbstractProcessor
+
+        @hsmdef mutable struct Processor <: AbstractProcessor
+            entry_count::Int
+            exit_count::Int
+            event_count::Int
+        end
+
+        @statedef AbstractProcessor :Processing
+        @statedef AbstractProcessor :Complete :Processing
+
+        # Minimal abstract handlers - just exist as extension points
+        @on_entry function(sm::AbstractProcessor, state::Processing)
+            # Minimal abstract implementation
+        end
+
+        @on_exit function(sm::AbstractProcessor, state::Processing)
+            # Minimal abstract implementation
+        end
+
+        @on_event function(sm::AbstractProcessor, state::Processing, event::Process, data)
+            # Minimal abstract implementation
+            return Hsm.EventHandled
+        end
+
+        # Concrete handlers that extend abstract behavior
+        @on_entry function(sm::Processor, state::Processing)
+            @super on_entry sm state
+            sm.entry_count += 1
+        end
+
+        @on_exit function(sm::Processor, state::Processing)
+            @super on_exit sm state
+            sm.exit_count += 1
+        end
+
+        @on_event function(sm::Processor, state::Processing, event::Process, data)
+            result = @super on_event sm state event data
+            sm.event_count += 1
+            return result
+        end
+
+        @on_initial function(sm::Processor, state::Root)
+            return Hsm.transition!(sm, :Processing)
+        end
+
+        proc = Processor(0, 0, 0)
+        @test proc.entry_count == 1  # Called on transition to Processing
+
+        Hsm.dispatch!(proc, :Process, nothing)
+        @test proc.event_count == 1
+
+        Hsm.transition!(proc, :Root)  # Exit Processing
+        @test proc.exit_count == 1
     end
 end
