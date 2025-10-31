@@ -191,17 +191,249 @@ the `@hsmdef` macro for each state machine type, which returns `EventNotHandled`
 """
 function on_event! end
 
-function do_entry!(sm, s::Symbol, t)
+# --- Tracing hooks (internal, opt-in via multiple dispatch) ---
+# Default implementations are no-ops and get inlined away.
+# Users may extend these for their state machine type, e.g.,
+#   function Hsm.trace_entry(sm::MyMachine, state::Symbol); @info "enter" state; end
+
+"""
+    trace_dispatch_start(sm, event::Symbol, arg)
+
+Tracing hook called at the beginning of event dispatch, before any state handlers are tried.
+
+# Arguments
+- `sm`: The state machine instance
+- `event::Symbol`: The event being dispatched
+- `arg`: The argument passed with the event
+
+# Default Behavior
+The default implementation is a no-op that gets completely inlined away at compile time.
+
+# Example
+```julia
+function Hsm.trace_dispatch_start(sm::MyStateMachine, event::Symbol, arg)
+    @info "Dispatching event" event arg
+end
+```
+
+Note: This is an internal tracing hook. Override it for your specific state machine type
+to add custom instrumentation without affecting other state machines.
+"""
+@inline function trace_dispatch_start(@nospecialize(sm), event::Symbol, arg) end
+
+"""
+    trace_dispatch_attempt(sm, state::Symbol, event::Symbol)
+
+Tracing hook called before attempting to handle an event in a specific state.
+
+# Arguments
+- `sm`: The state machine instance
+- `state::Symbol`: The state whose handler will be tried
+- `event::Symbol`: The event being handled
+
+# Default Behavior
+The default implementation is a no-op that gets completely inlined away at compile time.
+
+# Example
+```julia
+function Hsm.trace_dispatch_attempt(sm::MyStateMachine, state::Symbol, event::Symbol)
+    @info "Trying handler" state event
+end
+```
+
+Note: This hook is called for each state in the hierarchy during event propagation,
+from the current state up to `:Root`, until a handler returns `EventHandled`.
+"""
+@inline function trace_dispatch_attempt(@nospecialize(sm), state::Symbol, event::Symbol) end
+
+"""
+    trace_dispatch_result(sm, state::Symbol, event::Symbol, result)
+
+Tracing hook called after a state's event handler returns a result.
+
+# Arguments
+- `sm`: The state machine instance
+- `state::Symbol`: The state whose handler was tried
+- `event::Symbol`: The event that was handled
+- `result`: The return value from the handler (`EventHandled`, `EventNotHandled`, or transition result)
+
+# Default Behavior
+The default implementation is a no-op that gets completely inlined away at compile time.
+
+# Example
+```julia
+function Hsm.trace_dispatch_result(sm::MyStateMachine, state::Symbol, event::Symbol, result)
+    @info "Handler result" state event result
+end
+```
+
+Note: This hook is useful for tracking which state handled an event and how.
+"""
+@inline function trace_dispatch_result(@nospecialize(sm), state::Symbol, event::Symbol, result) end
+
+"""
+    trace_transition_begin(sm, from::Symbol, to::Symbol, lca::Symbol)
+
+Tracing hook called at the start of a state transition.
+
+# Arguments
+- `sm`: The state machine instance
+- `from::Symbol`: The current state before transition
+- `to::Symbol`: The target state for the transition
+- `lca::Symbol`: The least common ancestor of `from` and `to`
+
+# Default Behavior
+The default implementation is a no-op that gets completely inlined away at compile time.
+
+# Example
+```julia
+function Hsm.trace_transition_begin(sm::MyStateMachine, from::Symbol, to::Symbol, lca::Symbol)
+    @info "Transition starting" from to lca
+end
+```
+
+Note: This is the first hook called during a transition, before any exit handlers.
+"""
+@inline function trace_transition_begin(@nospecialize(sm), from::Symbol, to::Symbol, lca::Symbol) end
+
+"""
+    trace_transition_action(sm, from::Symbol, to::Symbol)
+
+Tracing hook called just before the transition action function executes.
+
+# Arguments
+- `sm`: The state machine instance
+- `from::Symbol`: The source state of the transition
+- `to::Symbol`: The target state of the transition
+
+# Default Behavior
+The default implementation is a no-op that gets completely inlined away at compile time.
+
+# Example
+```julia
+function Hsm.trace_transition_action(sm::MyStateMachine, from::Symbol, to::Symbol)
+    @info "Transition action executing" from to
+end
+```
+
+Note: This hook is called after all exit handlers and before any entry handlers.
+The transition action (if provided) runs immediately after this hook.
+"""
+@inline function trace_transition_action(@nospecialize(sm), from::Symbol, to::Symbol) end
+
+"""
+    trace_transition_end(sm, from::Symbol, to::Symbol)
+
+Tracing hook called when a state transition completes.
+
+# Arguments
+- `sm`: The state machine instance
+- `from::Symbol`: The original state before transition
+- `to::Symbol`: The final state after transition (including initial transitions)
+
+# Default Behavior
+The default implementation is a no-op that gets completely inlined away at compile time.
+
+# Example
+```julia
+function Hsm.trace_transition_end(sm::MyStateMachine, from::Symbol, to::Symbol)
+    @info "Transition complete" from to
+    sm.transition_count += 1
+end
+```
+
+Note: This is the last hook called during a transition, after all entry and initial handlers.
+"""
+@inline function trace_transition_end(@nospecialize(sm), from::Symbol, to::Symbol) end
+
+"""
+    trace_entry(sm, state::Symbol)
+
+Tracing hook called before entering a state (before `on_entry!` is called).
+
+# Arguments
+- `sm`: The state machine instance
+- `state::Symbol`: The state being entered
+
+# Default Behavior
+The default implementation is a no-op that gets completely inlined away at compile time.
+
+# Example
+```julia
+function Hsm.trace_entry(sm::MyStateMachine, state::Symbol)
+    @info "Entering state" state
+    push!(sm.state_history, state)
+end
+```
+
+Note: During hierarchical transitions, this hook is called for each state from the
+least common ancestor down to the target state.
+"""
+@inline function trace_entry(@nospecialize(sm), state::Symbol) end
+
+"""
+    trace_exit(sm, state::Symbol)
+
+Tracing hook called before exiting a state (before `on_exit!` is called).
+
+# Arguments
+- `sm`: The state machine instance
+- `state::Symbol`: The state being exited
+
+# Default Behavior
+The default implementation is a no-op that gets completely inlined away at compile time.
+
+# Example
+```julia
+function Hsm.trace_exit(sm::MyStateMachine, state::Symbol)
+    @info "Exiting state" state
+    sm.exit_count[state] = get(sm.exit_count, state, 0) + 1
+end
+```
+
+Note: During hierarchical transitions, this hook is called for each state from the
+current state up to the least common ancestor.
+"""
+@inline function trace_exit(@nospecialize(sm), state::Symbol) end
+
+"""
+    trace_initial(sm, state::Symbol)
+
+Tracing hook called before an initial transition handler (before `on_initial!` is called).
+
+# Arguments
+- `sm`: The state machine instance
+- `state::Symbol`: The state whose initial handler will be called
+
+# Default Behavior
+The default implementation is a no-op that gets completely inlined away at compile time.
+
+# Example
+```julia
+function Hsm.trace_initial(sm::MyStateMachine, state::Symbol)
+    @info "Initial transition" state
+end
+```
+
+Note: Initial transitions allow hierarchical states to transition to a default child state.
+This hook is called during state machine initialization and after transitions to parent states.
+"""
+@inline function trace_initial(@nospecialize(sm), state::Symbol) end
+
+
+function do_entry!(sm, s::Symbol, t::Symbol)
     if s == t
         return
     end
     do_entry!(sm, s, ancestor(sm, t))
+    trace_entry(sm, t)
     on_entry!(sm, t)
     return
 end
 
-function do_exit!(sm, s::Symbol, t)
+function do_exit!(sm, s::Symbol, t::Symbol)
     while s != t
+        trace_exit(sm, s)
         on_exit!(sm, s)
         s = ancestor(sm, s)
     end
@@ -209,8 +441,8 @@ function do_exit!(sm, s::Symbol, t)
 end
 
 """
-    transition!(sm, t)
-    transition!(action::Function, sm, t)
+    transition!(sm, t::Symbol)
+    transition!(action::Function, sm, t::Symbol)
 
 Transition state machine `sm` to state `t`.
 The `action` function will be called, if specified, during the transition when the main source state has
@@ -224,19 +456,23 @@ transition!(sm, State_S2) do
 end
 ```
 """
-function transition!(sm, t)
+function transition!(sm, t::Symbol)
     transition!(Returns(nothing), sm, t)
 end
 
-function transition!(action::Function, sm, t)
+function transition!(action::Function, sm, t::Symbol)
     c = current(sm)
     s = source(sm)
     lca = find_lca(sm, s, t)
+
+    # Trace transition lifecycle
+    trace_transition_begin(sm, c, t, lca)
 
     # Perform exit transitions from the current state
     do_exit!(sm, c, lca)
 
     # Call action function
+    trace_transition_action(sm, c, t)
     action()
 
     # Perform entry transitions to the target state
@@ -245,12 +481,16 @@ function transition!(action::Function, sm, t)
     # Set the source to current for initial transition
     current!(sm, t)
     source!(sm, t)
+    trace_initial(sm, t)
+    result = on_initial!(sm, t)
 
-    on_initial!(sm, t)
+    # Transition complete
+    trace_transition_end(sm, c, t)
+    return result
 end
 
 """
-    isancestorof(sm, a, b)
+    isancestorof(sm, a::Symbol, b::Symbol)
 
 Check if state `a` is an ancestor (superstate) of state `b` in state machine `sm`.
 
@@ -259,7 +499,7 @@ Check if state `a` is an ancestor (superstate) of state `b` in state machine `sm
 false == isancestorof(sm, State_S1, State_S2)
 ```
 """
-function isancestorof(sm, a, b)
+function isancestorof(sm, a::Symbol, b::Symbol)
     # :Root is an ancestor of everything (including itself)
     if a == :Root
         return true
@@ -314,12 +554,16 @@ end
 Dispatch the event in state machine `sm`.
 """
 function dispatch!(sm, event::Symbol, arg=nothing)
+    trace_dispatch_start(sm, event, arg)
     s = current(sm)
 
     # Find the main source state by calling on_event! until the event is handled
     while true
         source!(sm, s)
-        if on_event!(sm, s, event, arg) == EventHandled
+        trace_dispatch_attempt(sm, s, event)
+        result = on_event!(sm, s, event, arg)
+        trace_dispatch_result(sm, s, event, result)
+        if result == EventHandled
             return EventHandled
         end
         s != :Root || break

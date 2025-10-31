@@ -23,6 +23,7 @@ Hsm.jl provides a framework for implementing hierarchical state machines (HSMs) 
 - **Event tracking**: Automatic tracking of the current event being processed
 - **Type-safe default handlers**: Each state machine gets its own set of type-specific default handlers
 - **Polymorphism**: Multiple concrete state machine types can share a common abstract interface
+- **Zero-cost tracing**: Optional tracing hooks for debugging and instrumentation with no overhead when unused
 
 ## Installation
 
@@ -145,6 +146,68 @@ The `example/` directory contains various examples:
 - Shared state hierarchies and handlers across multiple concrete types
 - Type-specific specialization of event handlers
 - Calling abstract parent handlers with `@super` to extend behavior
+- Zero-cost tracing hooks for debugging and instrumentation
+
+## Tracing Hooks
+
+Hsm.jl provides a set of lightweight tracing hooks that allow you to observe the internal lifecycle of your state machine without affecting performance. By default, these hooks are no-op functions that get completely inlined away at compile time, resulting in zero overhead.
+
+### Available Trace Hooks
+
+You can override any of these functions for your specific state machine type to add custom instrumentation:
+
+```julia
+# Event dispatch lifecycle
+Hsm.trace_dispatch_start(sm, event::Symbol, arg)           # Before dispatch begins
+Hsm.trace_dispatch_attempt(sm, state::Symbol, event::Symbol) # Before trying state's handler
+Hsm.trace_dispatch_result(sm, state::Symbol, event::Symbol, result) # After handler returns
+
+# State transition lifecycle
+Hsm.trace_transition_begin(sm, from::Symbol, to::Symbol, lca::Symbol) # Transition starts
+Hsm.trace_transition_action(sm, from::Symbol, to::Symbol)  # Before action function runs
+Hsm.trace_transition_end(sm, from::Symbol, to::Symbol)     # Transition completes
+
+# State entry/exit/initial
+Hsm.trace_entry(sm, state::Symbol)    # Before on_entry! is called
+Hsm.trace_exit(sm, state::Symbol)     # Before on_exit! is called
+Hsm.trace_initial(sm, state::Symbol)  # Before on_initial! is called
+```
+
+### Example: Logging State Machine Activity
+
+```julia
+using Hsm
+
+@hsmdef mutable struct MonitoredSm
+    log::Vector{String}
+end
+
+@statedef MonitoredSm :StateA
+@statedef MonitoredSm :StateB
+
+# Override trace hooks for logging
+Hsm.trace_entry(sm::MonitoredSm, state::Symbol) = 
+    push!(sm.log, "Entering: $state")
+
+Hsm.trace_exit(sm::MonitoredSm, state::Symbol) = 
+    push!(sm.log, "Exiting: $state")
+
+Hsm.trace_dispatch_start(sm::MonitoredSm, event::Symbol, arg) = 
+    push!(sm.log, "Dispatch: $event")
+
+# Use the state machine - trace hooks will log activity
+sm = MonitoredSm(String[])
+Hsm.dispatch!(sm, :SomeEvent)
+println(sm.log)  # See all logged activity
+```
+
+### Performance Characteristics
+
+- **Default (no override)**: Zero cost - hooks are inlined and optimized away completely
+- **With override**: Only the specific state machine type you override incurs the tracing overhead
+- **Other types**: Unaffected - they continue to use the zero-cost default implementations
+
+This design allows you to add detailed instrumentation during development and debugging without affecting production performance when tracing is not needed.
 
 ## Generic Handlers with `Any`
 
