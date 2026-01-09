@@ -10,6 +10,7 @@ A zero-allocation, dynamic dispatch-free hierarchical state machine library for 
 Hsm.jl provides a framework for implementing hierarchical state machines (HSMs) in Julia. The library is designed for performance-critical applications where allocations and dynamic dispatch must be avoided.
 
 > **IMPORTANT**: Always use the `@hsmdef` macro to define state machines. The macro automatically generates type-specific default handlers that are required for proper functionality.
+> **NOTE**: `on_initial!` handlers must ultimately return `EventHandled`. Returning anything else will throw.
 
 ## Features
 
@@ -148,6 +149,11 @@ The `example/` directory contains various examples:
 - Calling abstract parent handlers with `@super` to extend behavior
 - Zero-cost tracing hooks for debugging and instrumentation
 
+## Behavior Notes
+
+- Self transitions are treated as external transitions (exit/entry actions run).
+- `trace_transition_end` reports the direct transition target; nested initial transitions may enter deeper states.
+
 ## Tracing Hooks
 
 Hsm.jl provides a set of lightweight tracing hooks that allow you to observe the internal lifecycle of your state machine without affecting performance. By default, these hooks are no-op functions that get completely inlined away at compile time, resulting in zero overhead.
@@ -165,7 +171,7 @@ Hsm.trace_dispatch_result(sm, state::Symbol, event::Symbol, result) # After hand
 # State transition lifecycle
 Hsm.trace_transition_begin(sm, from::Symbol, to::Symbol, lca::Symbol) # Transition starts
 Hsm.trace_transition_action(sm, from::Symbol, to::Symbol)  # Before action function runs
-Hsm.trace_transition_end(sm, from::Symbol, to::Symbol)     # Transition completes
+Hsm.trace_transition_end(sm, from::Symbol, to::Symbol)     # Transition completes (direct target)
 
 # State entry/exit/initial
 Hsm.trace_entry(sm, state::Symbol)    # Before on_entry! is called

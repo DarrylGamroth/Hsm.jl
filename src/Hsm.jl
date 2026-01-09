@@ -94,8 +94,8 @@ function ancestor end
 
 Handle initial transition to `state` in state machine `sm`.
 
-Initial transitions must transition to a child state of `state` or return [`EventHandled`](@ref)
-when the transition is complete.
+Initial transitions must transition to a child state of `state` and ultimately return
+[`EventHandled`](@ref) when the transition is complete. Returning any other value will throw.
 
 # Example
 ```julia
@@ -329,7 +329,7 @@ Tracing hook called when a state transition completes.
 # Arguments
 - `sm`: The state machine instance
 - `from::Symbol`: The original state before transition
-- `to::Symbol`: The final state after transition (including initial transitions)
+- `to::Symbol`: The direct target state requested by the transition (not the final state after initial transitions)
 
 # Default Behavior
 The default implementation is a no-op that gets completely inlined away at compile time.
@@ -446,7 +446,8 @@ end
 
 Transition state machine `sm` to state `t`.
 The `action` function will be called, if specified, during the transition when the main source state has
-    exited before entering the target state. [`transition!`](@ref) will always return [`EventHandled`](@ref).
+    exited before entering the target state. This returns [`EventHandled`](@ref) and throws if `on_initial!`
+    returns anything else.
 
 # Example
 ```julia
@@ -486,7 +487,10 @@ function transition!(action::Function, sm, t::Symbol)
 
     # Transition complete
     trace_transition_end(sm, c, t)
-    return result
+    if result !== EventHandled
+        throw(HsmEventError("on_initial! must return EventHandled after transitioning to $t"))
+    end
+    return EventHandled
 end
 
 """
@@ -527,6 +531,7 @@ end
 Find the least common ancestor of states `s` and `t` in state machine `sm`.
 
 Returns the least common ancestor of `s` and `t` or [`:Root`](@ref) if no common ancestor is found.
+Self transitions are treated as external transitions, so when `s == t` this returns the ancestor of `s`.
 """
 
 @inline function find_lca(sm, s::Symbol, t::Symbol)
