@@ -66,6 +66,11 @@ using Hsm
         return Hsm.EventNotHandled  # Let it propagate up
     end
 
+    @on_event function (sm::ComplexTestSm, ::State_S1, ::Event_Throw)
+        push!(sm.log, "Throw event in State_S1")
+        error("event handler failed")
+    end
+
     # Define handlers for State_S11
     @on_entry function (sm::ComplexTestSm, ::State_S11)
         push!(sm.log, "Entered State_S11")
@@ -252,6 +257,16 @@ using Hsm
         empty!(sm.log)
         @test Hsm.transition!(sm, :State_S12) === Hsm.EventHandled
         @test sm.log == ["Exited State_S11", "Entered State_S12"]
+    end
+
+    @testset "Dispatch cleanup after ancestor handler throws" begin
+        sm = ComplexTestSm(0, String[])
+        empty!(sm.log)
+
+        @test_throws ErrorException Hsm.dispatch!(sm, :Event_Throw)
+        @test Hsm.current(sm) === :State_S11
+        @test Hsm.source(sm) === :State_S11
+        @test sm.log == ["Throw event in State_S1"]
     end
 
     @testset "Event tracking during dispatch" begin
