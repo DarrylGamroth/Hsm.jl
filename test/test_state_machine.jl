@@ -66,6 +66,11 @@ using Hsm
         return Hsm.EventNotHandled  # Let it propagate up
     end
 
+    @on_event function (sm::ComplexTestSm, ::State_S1, ::Event_Throw)
+        push!(sm.log, "Throw event in State_S1")
+        error("event handler failed")
+    end
+
     # Define handlers for State_S11
     @on_entry function (sm::ComplexTestSm, ::State_S11)
         push!(sm.log, "Entered State_S11")
@@ -166,13 +171,17 @@ using Hsm
         # Test event that causes transition
         Hsm.dispatch!(sm, :Event_A)
         @test Hsm.current(sm) === :State_S12
+        @test Hsm.source(sm) === :State_S12
         @test "Event A in State_S1" in sm.log
         @test "Exited State_S11" in sm.log
         @test "Entered State_S12" in sm.log
 
         # Test event that propagates up the hierarchy
         empty!(sm.log)
-        Hsm.dispatch!(sm, :Event_B)
+        result = Hsm.dispatch!(sm, :Event_B)
+        @test result === Hsm.EventNotHandled
+        @test Hsm.current(sm) === :State_S12
+        @test Hsm.source(sm) === :State_S12
         @test "Event B in State_S1" in sm.log
         # Should not be handled since S12 doesn't handle B and S1 returns EventNotHandled
         @test sm.counter == 0
@@ -181,11 +190,13 @@ using Hsm
         empty!(sm.log)
         Hsm.transition!(sm, :State_S211)
         @test Hsm.current(sm) === :State_S211
-        @test "Exited State_S12" in sm.log
-        @test "Exited State_S1" in sm.log
-        @test "Entered State_S2" in sm.log
-        @test "Entered State_S21" in sm.log
-        @test "Entered State_S211" in sm.log
+        @test sm.log == [
+            "Exited State_S12",
+            "Exited State_S1",
+            "Entered State_S2",
+            "Entered State_S21",
+            "Entered State_S211",
+        ]
 
         # Test event handled only in one specific state
         empty!(sm.log)
@@ -233,6 +244,29 @@ using Hsm
         @test "Entered State_S21" in sm.log
         @test "Initial handler for State_S21" in sm.log
         @test "Entered State_S211" in sm.log
+    end
+
+    @testset "Direct transition after ancestor-handled event" begin
+        sm = ComplexTestSm(1, String[])
+        empty!(sm.log)
+
+        @test Hsm.dispatch!(sm, :Event_Reset) === Hsm.EventHandled
+        @test Hsm.current(sm) === :State_S11
+        @test Hsm.source(sm) === :State_S11
+
+        empty!(sm.log)
+        @test Hsm.transition!(sm, :State_S12) === Hsm.EventHandled
+        @test sm.log == ["Exited State_S11", "Entered State_S12"]
+    end
+
+    @testset "Dispatch cleanup after ancestor handler throws" begin
+        sm = ComplexTestSm(0, String[])
+        empty!(sm.log)
+
+        @test_throws ErrorException Hsm.dispatch!(sm, :Event_Throw)
+        @test Hsm.current(sm) === :State_S11
+        @test Hsm.source(sm) === :State_S11
+        @test sm.log == ["Throw event in State_S1"]
     end
 
     @testset "Event tracking during dispatch" begin
