@@ -28,6 +28,8 @@ Hsm.jl provides a framework for implementing hierarchical state machines (HSMs) 
 
 ## Installation
 
+Hsm.jl supports Julia 1.10 and later.
+
 ```julia
 using Pkg
 Pkg.add("Hsm")

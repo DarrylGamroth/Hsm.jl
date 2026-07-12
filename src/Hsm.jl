@@ -191,6 +191,16 @@ the `@hsmdef` macro for each state machine type, which returns `EventNotHandled`
 """
 function on_event! end
 
+# Fallbacks used by the ValSplit-generated Symbol dispatch methods. Keeping the
+# ValSplit wrapper stable lets downstream packages add generic handlers without
+# overwriting a method during precompilation.
+@inline _on_initial_fallback!(@nospecialize(sm), state::Symbol) = EventHandled
+@inline _on_entry_fallback!(@nospecialize(sm), state::Symbol) = nothing
+@inline _on_exit_fallback!(@nospecialize(sm), state::Symbol) = nothing
+@inline _on_event_fallback!(@nospecialize(sm), state::Symbol, event::Symbol, arg) = EventNotHandled
+@inline _on_event_fallback!(sm, ::Val{STATE}, event::Symbol, arg) where {STATE} =
+    _on_event_fallback!(sm, STATE, event, arg)
+
 # --- Tracing hooks (internal, opt-in via multiple dispatch) ---
 # Default implementations are no-ops and get inlined away.
 # Users may extend these for their state machine type, e.g.,
@@ -562,20 +572,26 @@ function dispatch!(sm, event::Symbol, arg=nothing)
     trace_dispatch_start(sm, event, arg)
     s = current(sm)
 
-    # Find the main source state by calling on_event! until the event is handled
-    while true
-        source!(sm, s)
-        trace_dispatch_attempt(sm, s, event)
-        result = on_event!(sm, s, event, arg)
-        trace_dispatch_result(sm, s, event, result)
-        if result == EventHandled
-            return EventHandled
+    try
+        # Find the main source state by calling on_event! until the event is handled.
+        # source(sm) is dispatch-local transition context; outside dispatch it must
+        # track current(sm) so a direct transition starts from the active leaf.
+        while true
+            source!(sm, s)
+            trace_dispatch_attempt(sm, s, event)
+            result = on_event!(sm, s, event, arg)
+            trace_dispatch_result(sm, s, event, result)
+            if result == EventHandled
+                return EventHandled
+            end
+            s != :Root || break
+            s = ancestor(sm, s)
         end
-        s != :Root || break
-        s = ancestor(sm, s)
-    end
 
-    return EventNotHandled
+        return EventNotHandled
+    finally
+        source!(sm, current(sm))
+    end
 end
 
 end # module Hsm

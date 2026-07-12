@@ -115,16 +115,14 @@ function generate_state_handler_impl(handler_name, smarg, smtype, state_arg, ful
     func_name = Symbol(string(handler_name) * "!")
 
     if is_any_state
-        # Special case for Any state - use ValSplit macro
-        return Expr(:macrocall,
-            :(ValSplit.var"@valsplit"),
-            LineNumberNode(@__LINE__, @__FILE__),
-            Expr(:function,
-                Expr(:call, :(Hsm.$func_name),
-                    Expr(:(::), smarg, smtype),
-                    Expr(:call, :Val, Expr(:(::), state_name, :Symbol))),
-                full_body
-            )
+        # The ValSplit Symbol wrapper is generated once by @hsmdef. Generic
+        # handlers specialize its fallback instead of overwriting the wrapper.
+        fallback_name = Symbol("_", string(handler_name), "_fallback!")
+        return Expr(:function,
+            Expr(:call, :(Hsm.$fallback_name),
+                Expr(:(::), smarg, smtype),
+                Expr(:(::), state_name, :Symbol)),
+            full_body
         )
     else
         # Normal case - specific state type
@@ -148,21 +146,26 @@ end
 
 # Generate handler for Any event types using ValSplit macro
 function generate_any_event_handler(smarg, smtype, new_args, full_body, event_name, is_any_state, state_name, method_where_clause)
-    # Determine the state argument type for ValSplit dispatch
-    state_arg = if is_any_state
-        # Both state and event are Any - need Val() wrapping for both
-        Expr(:call, :Val, Expr(:(::), state_name, :Symbol))
-    else
-        # Only event is Any, state is specific
-        new_args[2]
+    if is_any_state
+        signature = Expr(:call, :(Hsm._on_event_fallback!),
+            Expr(:(::), smarg, smtype),
+            Expr(:(::), state_name, :Symbol),
+            Expr(:(::), event_name, :Symbol),
+            new_args[4])
+
+        if method_where_clause !== nothing
+            where_args = method_where_clause isa Array ? method_where_clause : [method_where_clause]
+            signature = Expr(:where, signature, where_args...)
+        end
+
+        return Expr(:function, signature, full_body)
     end
 
+    # Determine the state argument type for ValSplit dispatch
+    state_arg = new_args[2]
+
     # Generate the default catch-all state argument for the fallback handler
-    default_state_arg = if is_any_state
-        Expr(:(::), Expr(:curly, :Val, QuoteNode(gensym("Any"))))
-    else
-        new_args[2]
-    end
+    default_state_arg = new_args[2]
 
     # Main ValSplit handler for dynamic event dispatch
     main_handler = if method_where_clause !== nothing
@@ -1053,7 +1056,7 @@ function create_state_machine_abstract_interface(interface_type)
                 Expr(:call, :(Hsm.on_initial!),
                     Expr(:(::), :sm, interface_type),
                     Expr(:call, :Val, Expr(:(::), :state, :Symbol))),
-                :(Hsm.EventHandled)
+                :(Hsm._on_initial_fallback!(sm, state))
             )
         )
     )
@@ -1067,7 +1070,7 @@ function create_state_machine_abstract_interface(interface_type)
                 Expr(:call, :(Hsm.on_entry!),
                     Expr(:(::), :sm, interface_type),
                     Expr(:call, :Val, Expr(:(::), :state, :Symbol))),
-                :nothing
+                :(Hsm._on_entry_fallback!(sm, state))
             )
         )
     )
@@ -1081,7 +1084,7 @@ function create_state_machine_abstract_interface(interface_type)
                 Expr(:call, :(Hsm.on_exit!),
                     Expr(:(::), :sm, interface_type),
                     Expr(:call, :Val, Expr(:(::), :state, :Symbol))),
-                :nothing
+                :(Hsm._on_exit_fallback!(sm, state))
             )
         )
     )
@@ -1099,7 +1102,7 @@ function create_state_machine_abstract_interface(interface_type)
                         Expr(:call, :Val, Expr(:(::), :event, :Symbol)),
                         Expr(:(::), :arg, :T)),
                     :T),
-                :(Hsm.EventNotHandled)
+                :(Hsm._on_event_fallback!(sm, state, event, arg))
             )
         )
     )

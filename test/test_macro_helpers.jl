@@ -303,7 +303,7 @@ import Hsm: process_macro_arguments, process_state_argument, process_event_argum
         # Testing this way makes the test resilient to implementation changes
         handler_str = string(handler_impl)
         @test occursin("function", handler_str)
-        @test occursin("Hsm.on_entry!", handler_str)
+        @test occursin("Hsm._on_entry_fallback!", handler_str)
         @test occursin("sm::TestSm", handler_str)
 
         # Make sure the state type is included in the generated code
