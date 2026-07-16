@@ -19,26 +19,27 @@ function format_error_message(error_prefix, message)
     return "$error_prefix: $message"
 end
 
+function unwrap_where_signature(signature)
+    if signature isa Expr && signature.head == :where
+        inner_signature, inner_parameters = unwrap_where_signature(signature.args[1])
+        return inner_signature, Any[inner_parameters...; signature.args[2:end]...]
+    end
+    return signature, Any[]
+end
+
 # Helper function to process state machine and arguments in a consistent way
 function process_macro_arguments(def, error_prefix, has_event=false)
-    def.head == :function || throw(ArgumentError(format_error_message(error_prefix, "Must wrap a function definition")))
+    def isa Expr && def.head == :function ||
+        throw(ArgumentError(format_error_message(error_prefix, "Must wrap a function definition")))
 
-    fn_sig = def.args[1]
+    fn_sig, where_clauses = unwrap_where_signature(def.args[1])
     body = def.args[2]
 
-    # Handle where clauses
-    where_clauses = []  # Always use an array for consistency
-    if fn_sig.head == :where
-        # Extract all where clause parameters
-        push!(where_clauses, fn_sig.args[2])
-        fn_sig = fn_sig.args[1]  # Get the actual function signature
-    end
-
     # Extract arguments based on function signature type
-    if fn_sig.head == :call
+    if fn_sig isa Expr && fn_sig.head == :call
         # Normal function: f(args...) - skip function name
         args = fn_sig.args[2:end]
-    elseif fn_sig.head == :tuple
+    elseif fn_sig isa Expr && fn_sig.head == :tuple
         # Anonymous function with where clause: (args...)
         args = fn_sig.args
     else
@@ -46,10 +47,14 @@ function process_macro_arguments(def, error_prefix, has_event=false)
     end
 
     # Validate argument count
-    min_args = has_event ? 3 : 2
-    if length(args) < min_args
-        required_args = has_event ? "state machine, state, and event" : "state machine and state"
-        throw(ArgumentError(format_error_message(error_prefix, "Function definition requires at least $min_args arguments: $required_args")))
+    valid_counts = has_event ? (3, 4) : (2,)
+    if !(length(args) in valid_counts)
+        expected = has_event ? "3 or 4 arguments (state machine, state, event[, data])" :
+                   "2 arguments (state machine and state)"
+        throw(ArgumentError(format_error_message(
+            error_prefix,
+            "Function definition requires exactly $expected; got $(length(args))",
+        )))
     end
 
     # Extract arguments
@@ -110,7 +115,16 @@ function process_macro_arguments(def, error_prefix, has_event=false)
 end
 
 # Helper function to generate a consistent implementation for state handlers
-function generate_state_handler_impl(handler_name, smarg, smtype, state_arg, full_body, is_any_state, state_name)
+function generate_state_handler_impl(
+    handler_name,
+    smarg,
+    smtype,
+    state_arg,
+    full_body,
+    is_any_state,
+    state_name,
+    method_where_clause=nothing,
+)
     # Create the function name symbol
     func_name = Symbol(string(handler_name) * "!")
 
@@ -118,21 +132,22 @@ function generate_state_handler_impl(handler_name, smarg, smtype, state_arg, ful
         # The ValSplit Symbol wrapper is generated once by @hsmdef. Generic
         # handlers specialize its fallback instead of overwriting the wrapper.
         fallback_name = Symbol("_", string(handler_name), "_fallback!")
-        return Expr(:function,
-            Expr(:call, :(Hsm.$fallback_name),
-                Expr(:(::), smarg, smtype),
-                Expr(:(::), state_name, :Symbol)),
-            full_body
-        )
+        signature = Expr(:call, :(Hsm.$fallback_name),
+            Expr(:(::), smarg, smtype),
+            Expr(:(::), state_name, :Symbol))
     else
         # Normal case - specific state type
-        return Expr(:function,
-            Expr(:call, :(Hsm.$func_name),
-                Expr(:(::), smarg, smtype),
-                state_arg),
-            full_body
-        )
+        signature = Expr(:call, :(Hsm.$func_name),
+            Expr(:(::), smarg, smtype),
+            state_arg)
     end
+
+    if method_where_clause !== nothing
+        where_args = method_where_clause isa Array ?
+                     method_where_clause : [method_where_clause]
+        signature = Expr(:where, signature, where_args...)
+    end
+    return Expr(:function, signature, full_body)
 end
 
 # Helper function to generate consistent implementation for event handlers
@@ -141,6 +156,743 @@ function generate_event_handler_impl(smarg, smtype, new_args, full_body, is_any_
         return generate_any_event_handler(smarg, smtype, new_args, full_body, event_name, is_any_state, state_name, method_where_clause)
     else
         return generate_specific_event_handler(smarg, smtype, new_args, full_body, method_where_clause)
+    end
+end
+
+function _qualified_function_name(expr, name::Symbol)
+    if expr isa GlobalRef
+        return expr.mod === (@__MODULE__) && expr.name === name ? :globalref : nothing
+    elseif expr isa Expr &&
+           expr.head == :. &&
+           length(expr.args) == 2 &&
+           expr.args[1] === :Hsm &&
+           expr.args[2] == QuoteNode(name)
+        return :hsm
+    end
+    return nothing
+end
+
+function _qualified_macro_name(expr, name::Symbol)
+    macro_name = Symbol("@", name)
+    if expr isa GlobalRef
+        return expr.mod === (@__MODULE__) && expr.name === macro_name ?
+               :globalref : nothing
+    elseif expr isa Expr &&
+           expr.head == :. &&
+           length(expr.args) == 2 &&
+           expr.args[1] === :Hsm &&
+           expr.args[2] == QuoteNode(macro_name)
+        return :hsm
+    elseif expr === macro_name
+        return :unqualified
+    end
+    return nothing
+end
+
+function transition_function_kind(expr)
+    expr === :transition! && return (:transition, :unqualified)
+    expr === :transition_history! && return (:history, :unqualified)
+
+    qualifier = _qualified_function_name(expr, :transition!)
+    qualifier !== nothing && return (:transition, qualifier)
+    qualifier = _qualified_function_name(expr, :transition_history!)
+    qualifier !== nothing && return (:history, qualifier)
+    return (nothing, nothing)
+end
+
+is_transition_function(expr) = first(transition_function_kind(expr)) === :transition
+
+literal_symbol(expr) = expr isa QuoteNode && expr.value isa Symbol ? expr.value : nothing
+
+function val_expression(value::Symbol)
+    return Expr(:call, Expr(:curly, GlobalRef(Base, :Val), QuoteNode(value)))
+end
+
+function _binding_names!(names::Set{Symbol}, binding)
+    if binding isa Symbol
+        push!(names, binding)
+    elseif binding isa Expr
+        if binding.head in (:(=), :(::), :kw, :(...), :(<:), :(>:))
+            _binding_names!(names, binding.args[1])
+        elseif binding.head in (:tuple, :vect, :parameters)
+            for argument in binding.args
+                _binding_names!(names, argument)
+            end
+        end
+    end
+    return names
+end
+
+function _scope_assignments!(names::Set{Symbol}, expr)
+    expr isa Expr || return names
+    expr.head in (:function, :(->), :quote, :macrocall, :struct, :module, :baremodule) &&
+        return names
+
+    if expr.head == :(=)
+        _binding_names!(names, expr.args[1])
+        _scope_assignments!(names, expr.args[2])
+    elseif expr.head in (:local, :const)
+        for binding in expr.args
+            _binding_names!(names, binding)
+        end
+    else
+        for argument in expr.args
+            _scope_assignments!(names, argument)
+        end
+    end
+    return names
+end
+
+function _history_kind_expression(expr)
+    expr isa Expr && expr.head == :call && length(expr.args) == 1 || return nothing
+    for kind in (:ShallowHistory, :DeepHistory)
+        function_expr = expr.args[1]
+        if function_expr === kind || _qualified_function_name(function_expr, kind) !== nothing
+            return Expr(:call, GlobalRef(@__MODULE__, kind))
+        end
+    end
+    return nothing
+end
+
+function _history_kind_symbol(expr)
+    expr isa Expr && expr.head == :call && length(expr.args) == 1 || return nothing
+    function_expr = expr.args[1]
+    for (kind, key) in ((:ShallowHistory, :shallow), (:DeepHistory, :deep))
+        if function_expr === kind || _qualified_function_name(function_expr, kind) !== nothing
+            return key
+        end
+    end
+    return nothing
+end
+
+function _history_kind_type_expression(expr)
+    for kind in (:ShallowHistory, :DeepHistory)
+        if expr === kind || _qualified_function_name(expr, kind) !== nothing
+            return GlobalRef(@__MODULE__, kind)
+        end
+    end
+    return nothing
+end
+
+mutable struct HandlerTransitionState
+    initial_transition_count::Int
+    history_owners::Set{Symbol}
+end
+
+HandlerTransitionState() = HandlerTransitionState(0, Set{Symbol}())
+
+function _transition_macro_error(error_prefix, message)
+    throw(HsmMacroError(format_error_message(error_prefix, message)))
+end
+
+function _rewrite_direct_transition(
+    call::Expr,
+    do_body,
+    smarg::Symbol,
+    source_state,
+    handler_kind::Symbol,
+    error_prefix,
+    assigned_names::Set{Symbol},
+    conditional::Bool,
+    state::HandlerTransitionState,
+)
+    call.head == :call || return nothing
+    transition_kind, qualifier = transition_function_kind(call.args[1])
+    transition_kind === nothing && return nothing
+
+    if qualifier === :unqualified
+        function_name = transition_kind === :transition ? :transition! : :transition_history!
+        function_name in assigned_names && return nothing
+    elseif qualifier === :hsm && :Hsm in assigned_names
+        return nothing
+    end
+
+    if transition_kind === :transition
+        if length(call.args) == 3
+            action = nothing
+            machine_index = 2
+            target_index = 3
+        elseif length(call.args) == 4 && do_body === nothing
+            action = call.args[2]
+            machine_index = 3
+            target_index = 4
+        else
+            return nothing
+        end
+        kind_expression = nothing
+    else
+        if length(call.args) == 4
+            action = nothing
+            machine_index = 2
+            target_index = 3
+            kind_index = 4
+        elseif length(call.args) == 5 && do_body === nothing
+            action = call.args[2]
+            machine_index = 3
+            target_index = 4
+            kind_index = 5
+        else
+            return nothing
+        end
+        kind_expression = _history_kind_expression(call.args[kind_index])
+    end
+
+    call.args[machine_index] === smarg || return nothing
+    smarg in assigned_names && return nothing
+
+    if handler_kind in (:entry, :exit, :history_default, :choice_effect)
+        behavior = if handler_kind === :entry
+            "entry"
+        elseif handler_kind === :exit
+            "exit"
+        elseif handler_kind === :choice_effect
+            "choice transition effect"
+        else
+            "default-history transition effect"
+        end
+        _transition_macro_error(
+            error_prefix,
+            "$behavior Behaviors cannot initiate transitions under UML run-to-completion semantics",
+        )
+    elseif source_state === nothing
+        _transition_macro_error(
+            error_prefix,
+            "transitions require a concrete state handler; state::Any does not define a UML transition source",
+        )
+    end
+
+    target = literal_symbol(call.args[target_index])
+    target === nothing && _transition_macro_error(
+        error_prefix,
+        "handler transition targets must be literal Symbols so the transition edge is static",
+    )
+
+    if transition_kind === :history && kind_expression === nothing
+        _transition_macro_error(
+            error_prefix,
+            "history kind must be written as ShallowHistory() or DeepHistory()",
+        )
+    end
+
+    transition_kind === :history && push!(state.history_owners, target)
+
+    if handler_kind === :initial
+        conditional && _transition_macro_error(
+            error_prefix,
+            "an initial Pseudostate Transition cannot be guarded or conditional",
+        )
+        state.initial_transition_count += 1
+    end
+
+    internal_name = if handler_kind === :initial
+        transition_kind === :transition ? :_initial_transition_from! :
+        :_initial_transition_history_from!
+    else
+        transition_kind === :transition ? :_transition_from! :
+        :_transition_history_from!
+    end
+    static_arguments = Any[smarg, val_expression(source_state), val_expression(target)]
+    transition_kind === :history && push!(static_arguments, kind_expression)
+
+    if do_body !== nothing
+        static_call = Expr(:call, GlobalRef(@__MODULE__, internal_name), static_arguments...)
+        return Expr(:do, static_call, do_body)
+    elseif action === nothing
+        return Expr(
+            :call,
+            GlobalRef(@__MODULE__, internal_name),
+            Expr(:call, GlobalRef(Base, :Returns), nothing),
+            static_arguments...,
+        )
+    end
+    return Expr(:call, GlobalRef(@__MODULE__, internal_name), action, static_arguments...)
+end
+
+function _without_line_nodes(expr)
+    if expr isa Expr && expr.head == :block
+        return Any[arg for arg in expr.args if !(arg isa LineNumberNode)]
+    elseif expr isa LineNumberNode
+        return Any[]
+    end
+    return Any[expr]
+end
+
+function _choice_transition_effect(
+    expression,
+    smarg::Symbol,
+    assigned_names::Set{Symbol},
+    error_prefix,
+)
+    if expression isa Expr && expression.head == :return
+        length(expression.args) == 1 || _transition_macro_error(
+            error_prefix,
+            "invalid return expression in @choice branch",
+        )
+        expression = expression.args[1]
+    end
+
+    do_body = nothing
+    call = expression
+    if expression isa Expr && expression.head == :do
+        call = expression.args[1]
+        do_body = expression.args[2]
+    end
+    call isa Expr && call.head == :call || _transition_macro_error(
+        error_prefix,
+        "each @choice branch must end in transition!(sm, :LiteralTarget)",
+    )
+
+    transition_kind, qualifier = transition_function_kind(call.args[1])
+    transition_kind === :transition || _transition_macro_error(
+        error_prefix,
+        "@choice branches currently support ordinary transition! targets only",
+    )
+    if qualifier === :unqualified && :transition! in assigned_names
+        _transition_macro_error(
+            error_prefix,
+            "@choice cannot use a shadowed transition! binding",
+        )
+    elseif qualifier === :hsm && :Hsm in assigned_names
+        _transition_macro_error(
+            error_prefix,
+            "@choice cannot use a shadowed Hsm binding",
+        )
+    end
+
+    if length(call.args) == 3
+        action = nothing
+        machine_index = 2
+        target_index = 3
+    elseif length(call.args) == 4 && do_body === nothing
+        action = call.args[2]
+        machine_index = 3
+        target_index = 4
+    else
+        _transition_macro_error(error_prefix, "invalid transition! form in @choice branch")
+    end
+    call.args[machine_index] === smarg || _transition_macro_error(
+        error_prefix,
+        "@choice branch transitions must use the enclosing handler's state machine",
+    )
+    target = literal_symbol(call.args[target_index])
+    target === nothing && _transition_macro_error(
+        error_prefix,
+        "@choice branch targets must be literal Symbols",
+    )
+
+    effect = if do_body !== nothing
+        do_body isa Expr && do_body.head == :(->) || _transition_macro_error(
+            error_prefix,
+            "invalid do-block in @choice branch",
+        )
+        parameters = do_body.args[1]
+        parameters isa Expr && parameters.head == :tuple && isempty(parameters.args) ||
+            _transition_macro_error(
+                error_prefix,
+                "transition effects in @choice must not accept arguments",
+            )
+        do_body.args[2]
+    elseif action === nothing
+        nothing
+    else
+        Expr(:call, action)
+    end
+    return target, effect
+end
+
+function _parse_choice_branch(
+    branch,
+    smarg::Symbol,
+    assigned_names::Set{Symbol},
+    error_prefix,
+)
+    statements = _without_line_nodes(branch)
+    isempty(statements) && _transition_macro_error(error_prefix, "empty @choice branch")
+    target, terminal_effect = _choice_transition_effect(
+        pop!(statements),
+        smarg,
+        assigned_names,
+        error_prefix,
+    )
+    terminal_effect === nothing || push!(statements, terminal_effect)
+    return target, Expr(:block, statements...)
+end
+
+function _collect_choice_branches!(
+    guarded,
+    expression,
+    smarg::Symbol,
+    assigned_names::Set{Symbol},
+    error_prefix,
+)
+    expression isa Expr && expression.head in (:if, :elseif) ||
+        _transition_macro_error(error_prefix, "@choice body must end in an if/elseif/else")
+    length(expression.args) == 3 || _transition_macro_error(
+        error_prefix,
+        "@choice requires an else branch so the Pseudostate cannot become stable",
+    )
+    guard, then_branch, else_branch = expression.args
+    target, effect = _parse_choice_branch(
+        then_branch,
+        smarg,
+        assigned_names,
+        error_prefix,
+    )
+    push!(guarded, (guard, target, effect))
+
+    if else_branch isa Expr && else_branch.head == :elseif
+        return _collect_choice_branches!(
+            guarded,
+            else_branch,
+            smarg,
+            assigned_names,
+            error_prefix,
+        )
+    end
+    return _parse_choice_branch(
+        else_branch,
+        smarg,
+        assigned_names,
+        error_prefix,
+    )
+end
+
+function _validate_choice_effect(
+    effect,
+    smarg::Symbol,
+    source_state,
+    error_prefix,
+    assigned_names::Set{Symbol},
+)
+    return _rewrite_handler_expr(
+        effect,
+        smarg,
+        source_state,
+        :choice_effect,
+        error_prefix,
+        assigned_names,
+        false,
+        HandlerTransitionState(),
+    )
+end
+
+function _rewrite_choice_macro(
+    expression::Expr,
+    smarg::Symbol,
+    source_state,
+    handler_kind::Symbol,
+    error_prefix,
+    assigned_names::Set{Symbol},
+    conditional::Bool,
+    state::HandlerTransitionState,
+)
+    qualifier = _qualified_macro_name(expression.args[1], :choice)
+    qualifier === nothing && return nothing
+    length(expression.args) == 5 || _transition_macro_error(
+        error_prefix,
+        "@choice expects a state machine, owning composite state, and body",
+    )
+    qualifier === :hsm && :Hsm in assigned_names && return nothing
+    expression.args[3] === smarg || _transition_macro_error(
+        error_prefix,
+        "@choice must use the enclosing handler's state machine",
+    )
+    handler_kind in (:entry, :exit, :history_default, :choice_effect) &&
+        _transition_macro_error(
+            error_prefix,
+            "$handler_kind Behaviors cannot initiate a choice Transition",
+        )
+    source_state === nothing && _transition_macro_error(
+        error_prefix,
+        "@choice requires a concrete state handler",
+    )
+
+    owner = literal_symbol(expression.args[4])
+    owner === nothing && _transition_macro_error(
+        error_prefix,
+        "@choice owner must be a literal Symbol",
+    )
+    body_statements = _without_line_nodes(expression.args[5])
+    isempty(body_statements) && _transition_macro_error(
+        error_prefix,
+        "@choice requires an if/elseif/else selector",
+    )
+    selector_expression = pop!(body_statements)
+    incoming_effect = Expr(:block, body_statements...)
+
+    guarded = Any[]
+    fallback_target, fallback_effect = _collect_choice_branches!(
+        guarded,
+        selector_expression,
+        smarg,
+        assigned_names,
+        error_prefix,
+    )
+    incoming_effect = _validate_choice_effect(
+        incoming_effect,
+        smarg,
+        source_state,
+        error_prefix,
+        assigned_names,
+    )
+    guarded = Any[
+        (
+            _validate_choice_effect(
+                guard,
+                smarg,
+                source_state,
+                error_prefix,
+                assigned_names,
+            ),
+            target,
+            _validate_choice_effect(
+                effect,
+                smarg,
+                source_state,
+                error_prefix,
+                assigned_names,
+            ),
+        )
+        for (guard, target, effect) in guarded
+    ]
+    fallback_effect = _validate_choice_effect(
+        fallback_effect,
+        smarg,
+        source_state,
+        error_prefix,
+        assigned_names,
+    )
+
+    if handler_kind === :initial
+        conditional && _transition_macro_error(
+            error_prefix,
+            "an initial Pseudostate Transition to a choice cannot be conditional",
+        )
+        state.initial_transition_count += 1
+    end
+
+    guard_bindings = Any[]
+    guard_names = Symbol[]
+    for (guard, _, _) in guarded
+        name = gensym("choice_guard")
+        push!(guard_names, name)
+        push!(guard_bindings, :($name = $guard))
+    end
+
+    selected = Expr(:block, fallback_effect, QuoteNode(fallback_target))
+    for index in reverse(eachindex(guarded))
+        _, target, effect = guarded[index]
+        selected = Expr(
+            :if,
+            guard_names[index],
+            Expr(:block, effect, QuoteNode(target)),
+            selected,
+        )
+    end
+    selector_body = Expr(:block, guard_bindings..., selected)
+    incoming_function = Expr(:(->), Expr(:tuple), incoming_effect)
+    selector_function = Expr(:(->), Expr(:tuple), selector_body)
+    targets = Tuple(unique(Symbol[
+        [target for (_, target, _) in guarded]...,
+        fallback_target,
+    ]))
+    targets_val = Expr(
+        :call,
+        Expr(:curly, GlobalRef(Base, :Val), QuoteNode(targets)),
+    )
+    return Expr(
+        :call,
+        GlobalRef(@__MODULE__, :_choice_from!),
+        incoming_function,
+        selector_function,
+        smarg,
+        val_expression(source_state),
+        val_expression(owner),
+        targets_val,
+    )
+end
+
+function _rewrite_handler_expr(
+    expr,
+    smarg::Symbol,
+    source_state,
+    handler_kind::Symbol,
+    error_prefix,
+    assigned_names::Set{Symbol},
+    conditional::Bool,
+    state::HandlerTransitionState,
+)
+    expr isa Expr || return expr
+    if expr.head == :macrocall
+        rewritten = _rewrite_choice_macro(
+            expr,
+            smarg,
+            source_state,
+            handler_kind,
+            error_prefix,
+            assigned_names,
+            conditional,
+            state,
+        )
+        rewritten !== nothing && return rewritten
+        return expr
+    end
+    expr.head in (:function, :(->), :quote, :struct, :module, :baremodule) &&
+        return expr
+
+    if expr.head == :do
+        call = expr.args[1]
+        if call isa Expr
+            rewritten = _rewrite_direct_transition(
+                call,
+                expr.args[2],
+                smarg,
+                source_state,
+                handler_kind,
+                error_prefix,
+                assigned_names,
+                conditional,
+                state,
+            )
+            rewritten !== nothing && return rewritten
+        end
+        rewritten_call = _rewrite_handler_expr(
+            call,
+            smarg,
+            source_state,
+            handler_kind,
+            error_prefix,
+            assigned_names,
+            conditional,
+            state,
+        )
+        return Expr(:do, rewritten_call, expr.args[2])
+    elseif expr.head == :call
+        rewritten = _rewrite_direct_transition(
+            expr,
+            nothing,
+            smarg,
+            source_state,
+            handler_kind,
+            error_prefix,
+            assigned_names,
+            conditional,
+            state,
+        )
+        rewritten !== nothing && return rewritten
+    end
+
+    child_conditional = conditional || expr.head in (:if, :&&, :||, :for, :while, :try, :catch)
+    return Expr(
+        expr.head,
+        map(expr.args) do argument
+            _rewrite_handler_expr(
+                argument,
+                smarg,
+                source_state,
+                handler_kind,
+                error_prefix,
+                assigned_names,
+                child_conditional,
+                state,
+            )
+        end...,
+    )
+end
+
+function rewrite_static_transitions(expr, smarg::Symbol, source_state::Symbol)
+    assigned_names = _scope_assignments!(Set{Symbol}(), expr)
+    return _rewrite_handler_expr(
+        expr,
+        smarg,
+        source_state,
+        :event,
+        "transition rewrite",
+        assigned_names,
+        false,
+        HandlerTransitionState(),
+    )
+end
+
+function static_state_parameter(state_arg)
+    state_arg isa Expr && state_arg.head == :(::) || return nothing
+    state_type = state_arg.args[2]
+    state_type isa Expr && state_type.head == :curly || return nothing
+    state_type.args[1] === :Val || return nothing
+    parameter = state_type.args[2]
+    return parameter isa QuoteNode && parameter.value isa Symbol ? parameter.value : nothing
+end
+
+function rewrite_handler_transitions(
+    full_body,
+    smarg,
+    state_arg,
+    is_any_state,
+    handler_kind::Symbol,
+    error_prefix,
+)
+    source_state = is_any_state ? nothing : static_state_parameter(state_arg)
+    assigned_names = _scope_assignments!(Set{Symbol}(), full_body)
+    state = HandlerTransitionState()
+    rewritten = _rewrite_handler_expr(
+        full_body,
+        smarg,
+        source_state,
+        handler_kind,
+        error_prefix,
+        assigned_names,
+        false,
+        state,
+    )
+    if handler_kind === :initial && state.initial_transition_count > 1
+        _transition_macro_error(
+            error_prefix,
+            "an initial Pseudostate may have at most one outgoing Transition",
+        )
+    end
+    return rewritten, state.history_owners
+end
+
+
+function generate_history_owner_registrations(smtype, history_owners)
+    registrations = Expr(:block)
+    registration_type = smtype isa Expr && smtype.head == :curly ?
+                        smtype.args[1] : smtype
+    for owner in sort!(collect(history_owners); by=String)
+        owner_node = QuoteNode(owner)
+        token_node = QuoteNode(gensym("history_owner"))
+        push!(registrations.args, quote
+            @inline Hsm._history_owner_edge(
+                ::$registration_type,
+                ::Val{$owner_node},
+                ::Val{$token_node},
+            ) = nothing
+        end)
+    end
+    return registrations
+end
+
+function generate_state_behavior_registration(
+    smtype,
+    state_arg,
+    is_any_state,
+    behavior_kind::Symbol,
+)
+    is_any_state && return Expr(:block)
+    state = static_state_parameter(state_arg)
+    state === nothing && return Expr(:block)
+    registration_type = smtype isa Expr && smtype.head == :curly ?
+                        smtype.args[1] : smtype
+    state_node = QuoteNode(state)
+    kind_node = QuoteNode(behavior_kind)
+    token_node = QuoteNode(gensym("state_behavior"))
+    return quote
+        @inline Hsm._state_behavior_edge(
+            ::$registration_type,
+            ::Val{$state_node},
+            ::Val{$kind_node},
+            ::Val{$token_node},
+        ) = nothing
     end
 end
 
@@ -187,12 +939,12 @@ function generate_any_event_handler(smarg, smtype, new_args, full_body, event_na
             full_body)
 
         Expr(:macrocall,
-            :(ValSplit.var"@valsplit"),
+            GlobalRef(ValSplit, Symbol("@valsplit")),
             LineNumberNode(@__LINE__, @__FILE__),
             func_expr)
     else
         Expr(:macrocall,
-            :(ValSplit.var"@valsplit"),
+            GlobalRef(ValSplit, Symbol("@valsplit")),
             LineNumberNode(@__LINE__, @__FILE__),
             Expr(:function,
                 Expr(:call, :(Hsm.on_event!),
@@ -355,6 +1107,36 @@ function process_state_argument(state_arg, error_prefix)
 end
 
 """
+    @choice sm :Owner begin
+        # incoming Transition effect
+        if guard_a
+            Hsm.transition!(sm, :TargetA)
+        elseif guard_b
+            Hsm.transition!(sm, :TargetB) do
+                # selected outgoing Transition effect
+            end
+        else
+            Hsm.transition!(sm, :Fallback)
+        end
+    end
+
+Model a choice Pseudostate inside an `@on_event`, `@on_initial`, or
+`@on_completion` handler. `Owner` is the composite State whose implicit Region
+owns the choice. All branch targets must be literal descendant vertices, and an
+`else` branch is required. Statements before the final `if` form the incoming
+Transition effect. After that effect and entry of `Owner`, every guard is
+evaluated and the first enabled guarded edge in source order is selected. The
+`else` edge is selected only when no guard is true. Only the selected edge's
+effect executes.
+"""
+macro choice(args...)
+    throw(HsmMacroError(
+        "@choice must appear directly inside an Hsm handler macro so its " *
+        "static transition source is known",
+    ))
+end
+
+"""
     @statedef smtype child parent
     @statedef smtype child
 
@@ -404,9 +1186,304 @@ macro statedef(smtype, child, parent=:Root)
         throw(ArgumentError("@statedef (at $(source_info)): Parent state must be a symbol (e.g., :Root)"))
     end
 
+    child_node = QuoteNode(child_sym)
+    parent_node = QuoteNode(parent_sym)
+    edge_token_node = QuoteNode(gensym("state_parent"))
+
     return esc(quote
-        Base.@__doc__ Hsm.ancestor(::$smtype, ::Val{$(QuoteNode(child_sym))}) = $(QuoteNode(parent_sym))
+        Base.@__doc__ Hsm.ancestor(::$smtype, ::Val{$child_node}) = $parent_node
+
+        # Register the hierarchy and current state with the static-transition
+        # path generated for literal transitions inside typed handlers.
+        @inline Hsm._ancestor_val(::$smtype, ::Val{$child_node}) = Val{$parent_node}()
+        @inline function Hsm._state_path(
+            sm::$smtype,
+            ::Val{$child_node},
+        )
+            parent_path = Hsm._state_path(sm, Val{$parent_node}())
+            return Hsm._StatePath{$child_node,typeof(parent_path)}()
+        end
+        @inline Hsm._static_state_registered(::$smtype, ::Val{$child_node}) = true
+        @inline Hsm._registered_state(::$smtype, ::Val{$child_node}) = nothing
+        @inline Hsm._state_parent_edge(
+            ::$smtype,
+            ::Val{$child_node},
+            ::Val{$parent_node},
+            ::Val{$edge_token_node},
+        ) = nothing
+
+        @inline function Hsm._transition_from_current!(
+            action::F,
+            sm::$smtype,
+            current::Val{$child_node},
+            source::Val,
+            target::Val,
+        ) where {F<:Function}
+            if !Hsm._static_isancestor(sm, source, current)
+                throw(Hsm.HsmStateError(
+                    "Transition source $(Hsm._val_parameter(source)) is not active " *
+                    "below current state $(Hsm._val_parameter(current))",
+                ))
+            end
+            return Hsm._transition_static!(action, sm, current, source, target)
+        end
     end)
+end
+
+"""
+    @finaldef smtype state parent
+    @finaldef smtype state
+
+Define a UML FinalState in the implicit Region owned by `parent`. Entering a
+top-level FinalState completes the state-machine execution. Entering a nested
+FinalState completes its owning composite State and makes that State's
+completion Transition eligible.
+
+A FinalState cannot own children or define entry, exit, initial, event, or
+completion Behaviors.
+
+# Example
+```julia
+@statedef Machine :Operating
+@finaldef Machine :OperatingDone :Operating
+@statedef Machine :Idle
+
+@on_completion function(sm::Machine, ::Operating)
+    return Hsm.transition!(sm, :Idle)
+end
+```
+"""
+macro finaldef(smtype, child, parent=:Root)
+    child_sym = child isa QuoteNode ? child.value : child
+    parent_sym = parent isa QuoteNode ? parent.value : parent
+    child_sym isa Symbol || throw(ArgumentError(
+        "@finaldef state must be a literal Symbol",
+    ))
+    parent_sym isa Symbol || throw(ArgumentError(
+        "@finaldef parent must be a literal Symbol",
+    ))
+    child_sym === :Root && throw(ArgumentError(":Root cannot be a FinalState"))
+    child_node = QuoteNode(child_sym)
+    parent_node = QuoteNode(parent_sym)
+    token_node = QuoteNode(gensym("final_state"))
+    return esc(quote
+        Hsm.@statedef $smtype $child_node $parent_node
+        @inline Hsm._final_state_edge(
+            ::$smtype,
+            ::Val{$child_node},
+            ::Val{$token_node},
+        ) = nothing
+    end)
+end
+
+"""
+    @terminatedef smtype name parent
+    @terminatedef smtype name
+
+Define a named UML terminate Pseudostate in the implicit Region owned by
+`parent`. A Transition targeting it follows the normal exit/effect/containing-
+State entry path and then immediately terminates the entire state machine.
+Terminate does not become a stable current State and does not execute exit
+Behaviors for the configuration that exists when termination takes effect.
+
+A terminate Pseudostate cannot own children or define State Behaviors.
+
+# Example
+```julia
+@statedef Machine :Running
+@terminatedef Machine :EmergencyStop
+
+@on_event function(sm::Machine, ::Running, ::Emergency, arg)
+    return Hsm.transition!(sm, :EmergencyStop)
+end
+```
+"""
+macro terminatedef(smtype, child, parent=:Root)
+    child_sym = child isa QuoteNode ? child.value : child
+    parent_sym = parent isa QuoteNode ? parent.value : parent
+    child_sym isa Symbol || throw(ArgumentError(
+        "@terminatedef name must be a literal Symbol",
+    ))
+    parent_sym isa Symbol || throw(ArgumentError(
+        "@terminatedef parent must be a literal Symbol",
+    ))
+    child_sym === :Root && throw(ArgumentError(
+        ":Root cannot be a terminate Pseudostate",
+    ))
+    child_node = QuoteNode(child_sym)
+    parent_node = QuoteNode(parent_sym)
+    token_node = QuoteNode(gensym("terminate_state"))
+    return esc(quote
+        Hsm.@statedef $smtype $child_node $parent_node
+        @inline Hsm._terminate_state_edge(
+            ::$smtype,
+            ::Val{$child_node},
+            ::Val{$token_node},
+        ) = nothing
+    end)
+end
+
+"""
+    @historydef smtype owner
+    @historydef smtype owner kind target
+
+Declare that composite state `owner` owns a history Pseudostate. Direct
+`transition_history!` calls outside handler macros require this declaration.
+Handler macros register literal history owners automatically.
+
+The four-argument form also declares the explicit default Transition used
+when that history Pseudostate has no stored configuration. `kind` must be
+`ShallowHistory()` or `DeepHistory()`, and `target` must be a literal descendant
+state. Use [`@on_history_default`](@ref) to define its optional effect Behavior.
+
+# Example
+```julia
+@statedef Machine :Operating
+@statedef Machine :Idle :Operating
+@historydef Machine :Operating Hsm.DeepHistory() :Idle
+```
+"""
+macro historydef(smtype, owner, options...)
+    owner_sym = owner isa QuoteNode ? owner.value : owner
+    owner_sym isa Symbol || throw(ArgumentError(
+        "@historydef owner must be a symbol (for example, :Operating)",
+    ))
+    length(options) in (0, 2) || throw(ArgumentError(
+        "@historydef expects either (machine, owner) or " *
+        "(machine, owner, history-kind, default-target)",
+    ))
+    owner_node = QuoteNode(owner_sym)
+    token_node = QuoteNode(gensym("history_owner"))
+
+    default_registration = Expr(:block)
+    if length(options) == 2
+        kind_key = _history_kind_symbol(options[1])
+        kind_key === nothing && throw(ArgumentError(
+            "@historydef kind must be ShallowHistory() or DeepHistory()",
+        ))
+        target_sym = literal_symbol(options[2])
+        target_sym === nothing && throw(ArgumentError(
+            "@historydef default target must be a literal Symbol",
+        ))
+        kind_node = QuoteNode(kind_key)
+        target_node = QuoteNode(target_sym)
+        default_token_node = QuoteNode(gensym("history_default"))
+        default_registration = quote
+            @inline Hsm._history_default_edge(
+                ::$smtype,
+                ::Val{$owner_node},
+                ::Val{$kind_node},
+                ::Val{$target_node},
+                ::Val{$default_token_node},
+            ) = nothing
+        end
+    end
+
+    return esc(quote
+        @inline Hsm._history_owner_edge(
+            ::$smtype,
+            ::Val{$owner_node},
+            ::Val{$token_node},
+        ) = nothing
+        $default_registration
+    end)
+end
+
+"""
+    @on_history_default function(sm::Machine, ::Owner, ::DeepHistory)
+        # optional default-history Transition effect
+    end
+
+Define the effect Behavior for an explicit default Transition declared by the
+four-argument form of [`@historydef`](@ref). The Behavior executes after the
+incoming history Transition effect and before entry of the default target. It
+cannot initiate a transition or recursively dispatch an event.
+"""
+macro on_history_default(def)
+    line = __source__.line
+    file = String(__source__.file)
+    error_prefix = "@on_history_default (line $line in $file)"
+
+    def isa Expr && def.head == :function || throw(ArgumentError(
+        "$error_prefix: Must wrap a function definition",
+    ))
+    signature, where_clauses = unwrap_where_signature(def.args[1])
+    signature isa Expr || throw(ArgumentError(
+        "$error_prefix: Unexpected function signature format",
+    ))
+    args = if signature.head == :call
+        signature.args[2:end]
+    elseif signature.head == :tuple
+        signature.args
+    else
+        throw(ArgumentError(
+            "$error_prefix: Unexpected function signature format",
+        ))
+    end
+    length(args) == 3 || throw(ArgumentError(
+        "$error_prefix: Function definition requires exactly 3 arguments " *
+        "(state machine, history owner, history kind)",
+    ))
+
+    sm_arg, owner_arg, kind_arg = args
+    if sm_arg isa Symbol
+        smarg = sm_arg
+        smtype = :Any
+    elseif sm_arg isa Expr && sm_arg.head == :(::) && length(sm_arg.args) == 2
+        smarg = sm_arg.args[1]
+        smtype = sm_arg.args[2]
+    else
+        throw(ArgumentError(
+            "$error_prefix: State machine parameter must be a symbol or typed parameter",
+        ))
+    end
+
+    owner_args, owner_injected, is_any_owner, owner_name =
+        process_state_argument(owner_arg, error_prefix)
+    is_any_owner && throw(ArgumentError(
+        "$error_prefix: history owner must be a concrete state",
+    ))
+    owner_state = static_state_parameter(only(owner_args))
+
+    kind_arg isa Expr && kind_arg.head == :(::) || throw(ArgumentError(
+        "$error_prefix: history kind must be typed as ::ShallowHistory or ::DeepHistory",
+    ))
+    kind_type = length(kind_arg.args) == 1 ? kind_arg.args[1] : kind_arg.args[2]
+    qualified_kind = _history_kind_type_expression(kind_type)
+    qualified_kind === nothing && throw(ArgumentError(
+        "$error_prefix: history kind must be ShallowHistory or DeepHistory",
+    ))
+    normalized_kind_arg = if length(kind_arg.args) == 1
+        Expr(:(::), qualified_kind)
+    else
+        Expr(:(::), kind_arg.args[1], qualified_kind)
+    end
+
+    body = isempty(owner_injected) ? def.args[2] :
+           Expr(:block, owner_injected..., def.args[2])
+    assigned_names = _scope_assignments!(Set{Symbol}(), body)
+    transition_state = HandlerTransitionState()
+    body = _rewrite_handler_expr(
+        body,
+        smarg,
+        owner_state,
+        :history_default,
+        error_prefix,
+        assigned_names,
+        false,
+        transition_state,
+    )
+
+    method_signature = Expr(
+        :call,
+        :(Hsm.on_history_default!),
+        Expr(:(::), smarg, smtype),
+        only(owner_args),
+        normalized_kind_arg,
+    )
+    isempty(where_clauses) ||
+        (method_signature = Expr(:where, method_signature, where_clauses...))
+    return esc(Expr(:function, method_signature, body))
 end
 
 """
@@ -421,6 +1498,10 @@ end
     end
 
 Define an event handler for a specific state and event.
+
+Transitions selected by a handler must name a literal `Symbol` target so the
+edge can be specialized. Use ordinary control flow to choose among multiple
+statically named transition calls.
 
 # Arguments
 - `function`: A function definition with the state machine as first argument, followed by state and event types
@@ -473,12 +1554,29 @@ macro on_event(def)
 
     # Construct the full function body with any injected parameter transformations
     full_body = isempty(injected) ? body : Expr(:block, injected..., body)
+    full_body, history_owners = rewrite_handler_transitions(
+        full_body,
+        smarg,
+        new_args[2],
+        is_any_state,
+        :event,
+        error_prefix,
+    )
 
     # Generate the final function using proper Expr construction for better macro hygiene
     # This ensures correct handling of variables from the caller's context
     handler_impl = generate_event_handler_impl(smarg, smtype, new_args, full_body, is_any_event, event_name, is_any_state, state_name, method_where_clause)
-    
+    history_registrations = generate_history_owner_registrations(smtype, history_owners)
+    behavior_registration = generate_state_behavior_registration(
+        smtype,
+        new_args[2],
+        is_any_state,
+        :event,
+    )
+
     return esc(quote
+        $history_registrations
+        $behavior_registration
         Base.@__doc__ $handler_impl
     end)
 end
@@ -489,8 +1587,9 @@ end
         return Hsm.transition!(sm, :State_S1)
     end
 
-Define an initial handler for a specific state. Initial handlers are called when a state becomes active
-and typically transition to a child state or perform initialization logic.
+Define an initial handler for a specific state. It models the State's initial
+Pseudostate and may contain at most one unconditional transition to a
+statically named child state.
 
 # Arguments
 - `function`: A function definition with the state machine as first argument, followed by state type
@@ -529,11 +1628,111 @@ macro on_initial(def)
 
     # Construct the full function body with any injected parameter transformations
     full_body = isempty(injected) ? body : Expr(:block, injected..., body)
+    full_body, history_owners = rewrite_handler_transitions(
+        full_body,
+        smarg,
+        new_args[2],
+        is_any_state,
+        :initial,
+        error_prefix,
+    )
 
     # Use helper function to generate the handler implementation
-    handler_impl = generate_state_handler_impl(:on_initial, smarg, smtype, new_args[2], full_body, is_any_state, state_name)
-    
+    method_where_clause = isempty(where_clauses) ? nothing : where_clauses
+    handler_impl = generate_state_handler_impl(
+        :on_initial,
+        smarg,
+        smtype,
+        new_args[2],
+        full_body,
+        is_any_state,
+        state_name,
+        method_where_clause,
+    )
+    history_registrations = generate_history_owner_registrations(smtype, history_owners)
+    behavior_registration = generate_state_behavior_registration(
+        smtype,
+        new_args[2],
+        is_any_state,
+        :initial,
+    )
+
     return esc(quote
+        $history_registrations
+        $behavior_registration
+        Base.@__doc__ $handler_impl
+    end)
+end
+
+"""
+    @on_completion function(sm::Machine, ::State)
+        return Hsm.transition!(sm, :Target)
+    end
+
+Define a triggerless completion Transition originating from `State`. Hsm.jl
+generates completion events after synchronous entry of a simple State and
+when a nested FinalState completes its owning composite State. Completion
+events are scoped to the State that completed and processed before another
+externally dispatched event. The handler may select one static ordinary,
+history, or choice Transition.
+"""
+macro on_completion(def)
+    line = __source__.line
+    file = String(__source__.file)
+    error_prefix = "@on_completion (line $line in $file)"
+
+    smarg, smtype, body, new_args, injected, _, _, _, _, is_any_state,
+        state_name, where_clauses = process_macro_arguments(
+            def,
+            error_prefix,
+        )
+    is_any_state && throw(ArgumentError(
+        "$error_prefix: completion Transitions require a concrete source State",
+    ))
+    full_body = isempty(injected) ? body : Expr(:block, injected..., body)
+    full_body, history_owners = rewrite_handler_transitions(
+        full_body,
+        smarg,
+        new_args[2],
+        false,
+        :completion,
+        error_prefix,
+    )
+    method_where_clause = isempty(where_clauses) ? nothing : where_clauses
+    handler_impl = generate_state_handler_impl(
+        :on_completion,
+        smarg,
+        smtype,
+        new_args[2],
+        full_body,
+        false,
+        state_name,
+        method_where_clause,
+    )
+    completion_state = static_state_parameter(new_args[2])
+    completion_state_node = QuoteNode(completion_state)
+    token_node = QuoteNode(gensym("completion_state"))
+    registration_type = smtype isa Expr && smtype.head == :curly ?
+                        smtype.args[1] : smtype
+    history_registrations = generate_history_owner_registrations(
+        smtype,
+        history_owners,
+    )
+    behavior_registration = generate_state_behavior_registration(
+        smtype,
+        new_args[2],
+        false,
+        :completion,
+    )
+
+    return esc(quote
+        $history_registrations
+        $behavior_registration
+        @inline Hsm._completion_state_edge(
+            ::$registration_type,
+            ::Val{$completion_state_node},
+            ::Val{$token_node},
+        ) = nothing
         Base.@__doc__ $handler_impl
     end)
 end
@@ -547,7 +1746,9 @@ end
         # generic entry code for any state
     end
 
-Define an entry handler for a specific state or for any state. Entry handlers are executed when transitioning into a state.
+Define an entry handler for a specific state or for any state. Entry handlers
+are executed as part of an already selected transition and cannot initiate a
+transition or recursively dispatch an event.
 
 # Arguments
 - `function`: A function definition with the state machine as first argument, followed by state type
@@ -586,11 +1787,38 @@ macro on_entry(def)
 
     # Construct the full function body with any injected parameter transformations
     full_body = isempty(injected) ? body : Expr(:block, injected..., body)
+    full_body, history_owners = rewrite_handler_transitions(
+        full_body,
+        smarg,
+        new_args[2],
+        is_any_state,
+        :entry,
+        error_prefix,
+    )
 
     # Use helper function to generate the handler implementation
-    handler_impl = generate_state_handler_impl(:on_entry, smarg, smtype, new_args[2], full_body, is_any_state, state_name)
-    
+    method_where_clause = isempty(where_clauses) ? nothing : where_clauses
+    handler_impl = generate_state_handler_impl(
+        :on_entry,
+        smarg,
+        smtype,
+        new_args[2],
+        full_body,
+        is_any_state,
+        state_name,
+        method_where_clause,
+    )
+    history_registrations = generate_history_owner_registrations(smtype, history_owners)
+    behavior_registration = generate_state_behavior_registration(
+        smtype,
+        new_args[2],
+        is_any_state,
+        :entry,
+    )
+
     return esc(quote
+        $history_registrations
+        $behavior_registration
         Base.@__doc__ $handler_impl
     end)
 end
@@ -604,7 +1832,9 @@ end
         # generic exit code for any state
     end
 
-Define an exit handler for a specific state or for any state. Exit handlers are executed when transitioning out of a state.
+Define an exit handler for a specific state or for any state. Exit handlers
+are executed as part of an already selected transition and cannot initiate a
+transition or recursively dispatch an event.
 
 # Arguments
 - `function`: A function definition with the state machine as first argument, followed by state type
@@ -650,11 +1880,38 @@ macro on_exit(def)
 
     # Construct the full function body with any injected parameter transformations
     full_body = isempty(injected) ? body : Expr(:block, injected..., body)
+    full_body, history_owners = rewrite_handler_transitions(
+        full_body,
+        smarg,
+        new_args[2],
+        is_any_state,
+        :exit,
+        error_prefix,
+    )
 
     # Use helper function to generate the handler implementation
-    handler_impl = generate_state_handler_impl(:on_exit, smarg, smtype, new_args[2], full_body, is_any_state, state_name)
-    
+    method_where_clause = isempty(where_clauses) ? nothing : where_clauses
+    handler_impl = generate_state_handler_impl(
+        :on_exit,
+        smarg,
+        smtype,
+        new_args[2],
+        full_body,
+        is_any_state,
+        state_name,
+        method_where_clause,
+    )
+    history_registrations = generate_history_owner_registrations(smtype, history_owners)
+    behavior_registration = generate_state_behavior_registration(
+        smtype,
+        new_args[2],
+        is_any_state,
+        :exit,
+    )
+
     return esc(quote
+        $history_registrations
+        $behavior_registration
         Base.@__doc__ $handler_impl
     end)
 end
@@ -722,8 +1979,8 @@ end
 """
     @hsmdef
 
-A macro that inserts two fields (with generated unique names) into a struct
-and adds a constructor that initializes these fields with :Root.
+A macro that inserts private runtime fields (with generated unique names) into
+a struct and adds a constructor that initializes the state machine at :Root.
 
 The macro works with both plain struct definitions and those using @kwdef.
 The field names are generated using gensym() to avoid name collisions.
@@ -759,32 +2016,52 @@ end
 end
 ```
 
-The macro will add two Symbol fields and create an additional constructor
-that accepts the original fields and automatically sets the generated
-fields to :Root.
+The macro adds private history, transition-phase, lifecycle,
+pending-completion, current-state, and source-state fields. Its additional
+constructor accepts the original fields, initializes the generated runtime
+storage, and starts the machine at `:Root`.
 """
 macro hsmdef(expr)
     # Generate unique field names to avoid collisions
+    history_field = gensym("history")
+    transition_phase_field = gensym("transition_phase")
+    lifecycle_field = gensym("lifecycle")
+    pending_completion_field = gensym("pending_completion")
     current_field = gensym("current")
     source_field = gensym("source")
 
-    # Handle nested macro calls (like @kwdef)
+    expr isa Expr || throw(HsmMacroError("@hsmdef must wrap a mutable struct definition"))
+
+    # Handle the explicitly supported Base.@kwdef composition.
     if expr.head == :macrocall
+        macro_name = expr.args[1]
+        is_kwdef = macro_name === Symbol("@kwdef") ||
+                   (macro_name isa Expr &&
+                    macro_name.head == :. &&
+                    macro_name.args[1] === :Base &&
+                    macro_name.args[2] == QuoteNode(Symbol("@kwdef")))
+        is_kwdef || throw(HsmMacroError(
+            "@hsmdef only supports a direct mutable struct or Base.@kwdef mutable struct",
+        ))
+
         # Extract the actual struct definition from the macro call
         struct_expr = expr.args[end]
+        struct_expr isa Expr && struct_expr.head == :struct || throw(HsmMacroError(
+            "@hsmdef could not find the mutable struct wrapped by Base.@kwdef",
+        ))
 
         # Process the inner macro first to get its expansion
         inner_expanded = macroexpand(__module__, expr)
 
         # Extract struct definition and constructors from the expansion
-        struct_def = nothing
-        constructors = []
-        other_items = []
+        struct_defs = Expr[]
+        constructors = Any[]
+        other_items = Any[]
 
         function extract_items(item)
             if item isa Expr
                 if item.head == :struct
-                    struct_def = item
+                    push!(struct_defs, item)
                 elseif item.head == :function
                     push!(constructors, item)
                 elseif item.head == :block
@@ -808,97 +2085,150 @@ macro hsmdef(expr)
             extract_items(inner_expanded)
         end
 
-        if struct_def !== nothing
-            # Validate that the struct is mutable
-            validate_mutable_struct(struct_def)
+        length(struct_defs) == 1 || throw(HsmMacroError(
+            "unrecognized Base.@kwdef expansion: expected exactly one struct definition, found $(length(struct_defs))",
+        ))
+        struct_def = only(struct_defs)
 
-            # Add the two new fields to the struct
-            modified_struct = add_fields_to_struct(struct_def, current_field, source_field)
+        # Validate that the struct is mutable
+        validate_mutable_struct(struct_def)
 
-            # Create the additional constructor
-            struct_name = get_struct_name(struct_def)
-            original_field_count = count_original_fields(struct_expr)
-            additional_constructor = create_additional_constructor(struct_name, original_field_count)
+        # Add the generated runtime fields to the struct
+        modified_struct = add_fields_to_struct(
+            struct_def,
+            history_field,
+            transition_phase_field,
+            lifecycle_field,
+            pending_completion_field,
+            current_field,
+            source_field,
+        )
 
-            # Create the HSM interface methods
-            # Concrete interface: field accessors must use concrete type (unique gensym'd fields)
-            concrete_interface = create_state_machine_concrete_interface(struct_name, current_field, source_field)
-            
-            # Abstract interface: only generate if there's NO abstract parent
-            # If there's an abstract parent, assume @abstracthsmdef was used to define the interface
-            abstract_type = get_abstract_type(struct_def)
-            abstract_interface = if abstract_type === nothing
-                # No parent - generate abstract interface on the concrete type
-                create_state_machine_abstract_interface(struct_name)
-            else
-                # Has abstract parent - skip (should be defined with @abstracthsmdef)
-                Expr(:block)
-            end
+        # Create the additional constructor
+        struct_name = get_struct_name(struct_def)
+        original_field_count = count_original_fields(struct_expr)
+        additional_constructor = create_additional_constructor(struct_name, original_field_count)
 
-            # Return the modified expansion with all components
-            result = Expr(:block)
-            for item in other_items
-                push!(result.args, item)
-            end
-            push!(result.args, modified_struct)
-            for constructor in constructors
-                push!(result.args, constructor)
-            end
-            push!(result.args, additional_constructor)
-            push!(result.args, concrete_interface)
-            push!(result.args, abstract_interface)
+        # Create the HSM interface methods
+        # Concrete interface: field accessors must use concrete type (unique gensym'd fields)
+        concrete_interface = create_state_machine_concrete_interface(
+            struct_name,
+            history_field,
+            transition_phase_field,
+            lifecycle_field,
+            pending_completion_field,
+            current_field,
+            source_field,
+        )
 
-            return esc(result)
+        # Abstract interface: only generate if there's NO abstract parent
+        # If there's an abstract parent, assume @abstracthsmdef was used to define the interface
+        abstract_type = get_abstract_type(struct_def)
+        abstract_interface = if abstract_type === nothing
+            # No parent - generate abstract interface on the concrete type
+            create_state_machine_abstract_interface(struct_name)
+        else
+            # Has abstract parent - skip (should be defined with @abstracthsmdef)
+            Expr(:block)
         end
-    else
+
+        # Return the modified expansion with all components
+        result = Expr(:block)
+        for item in other_items
+            push!(result.args, item)
+        end
+        push!(result.args, modified_struct)
+        for constructor in constructors
+            push!(result.args, constructor)
+        end
+        push!(result.args, additional_constructor)
+        push!(result.args, concrete_interface)
+        push!(result.args, abstract_interface)
+
+        return esc(result)
+    elseif expr.head == :struct
         # Handle direct struct definition
-        if expr.head == :struct
-            # Validate that the struct is mutable
-            validate_mutable_struct(expr)
+        # Validate that the struct is mutable
+        validate_mutable_struct(expr)
 
-            # Add the two new fields
-            modified_struct = add_fields_to_struct(expr, current_field, source_field)
+        # Add the generated runtime fields
+        modified_struct = add_fields_to_struct(
+            expr,
+            history_field,
+            transition_phase_field,
+            lifecycle_field,
+            pending_completion_field,
+            current_field,
+            source_field,
+        )
 
-            # Create additional constructor
-            struct_name = get_struct_name(expr)
-            original_field_count = count_original_fields(expr)
-            additional_constructor = create_additional_constructor(struct_name, original_field_count)
+        # Create additional constructor
+        struct_name = get_struct_name(expr)
+        original_field_count = count_original_fields(expr)
+        additional_constructor = create_additional_constructor(struct_name, original_field_count)
 
-            # Create the HSM interface methods
-            # Concrete interface: field accessors must use concrete type (unique gensym'd fields)
-            concrete_interface = create_state_machine_concrete_interface(struct_name, current_field, source_field)
-            
-            # Abstract interface: only generate if there's NO abstract parent
-            # If there's an abstract parent, assume @abstracthsmdef was used to define the interface
-            abstract_type = get_abstract_type(expr)
-            abstract_interface = if abstract_type === nothing
-                # No parent - generate abstract interface on the concrete type
-                create_state_machine_abstract_interface(struct_name)
-            else
-                # Has abstract parent - skip (should be defined with @abstracthsmdef)
-                Expr(:block)
-            end
+        # Create the HSM interface methods
+        # Concrete interface: field accessors must use concrete type (unique gensym'd fields)
+        concrete_interface = create_state_machine_concrete_interface(
+            struct_name,
+            history_field,
+            transition_phase_field,
+            lifecycle_field,
+            pending_completion_field,
+            current_field,
+            source_field,
+        )
 
-            return esc(quote
-                Base.@__doc__ $modified_struct
-                $additional_constructor
-                $concrete_interface
-                $abstract_interface
-            end)
+        # Abstract interface: only generate if there's NO abstract parent
+        # If there's an abstract parent, assume @abstracthsmdef was used to define the interface
+        abstract_type = get_abstract_type(expr)
+        abstract_interface = if abstract_type === nothing
+            # No parent - generate abstract interface on the concrete type
+            create_state_machine_abstract_interface(struct_name)
+        else
+            # Has abstract parent - skip (should be defined with @abstracthsmdef)
+            Expr(:block)
         end
+
+        return esc(quote
+            Base.@__doc__ $modified_struct
+            $additional_constructor
+            $concrete_interface
+            $abstract_interface
+        end)
     end
 
-    # Fallback: return original expression if we can't process it
-    return esc(expr)
+    throw(HsmMacroError("@hsmdef must wrap a mutable struct definition"))
 end
 
-function add_fields_to_struct(struct_expr, current_field, source_field)
+function add_fields_to_struct(
+    struct_expr,
+    history_field,
+    transition_phase_field,
+    lifecycle_field,
+    pending_completion_field,
+    current_field,
+    source_field,
+)
     modified_struct = deepcopy(struct_expr)
 
     # Find the body of the struct (where fields are defined)
     body = modified_struct.args[3]
 
-    # Add the two new fields with generated names
+    # Keep current/source last for compatibility with code that inspects the
+    # historical generated field order.
+    push!(body.args, Expr(
+        :(::),
+        history_field,
+        :(Union{Nothing,Vector{Symbol}}),
+    ))
+    push!(body.args, Expr(:(::), transition_phase_field, :UInt8))
+    push!(body.args, Expr(:(::), lifecycle_field, :UInt8))
+    push!(body.args, Expr(
+        :(::),
+        pending_completion_field,
+        :(Union{Nothing,Symbol}),
+    ))
     push!(body.args, Expr(:(::), current_field, :Symbol))
     push!(body.args, Expr(:(::), source_field, :Symbol))
 
@@ -961,25 +2291,42 @@ end
 
 function create_additional_constructor(struct_name, field_count)
     if field_count == 0
-        # For empty structs, create a simple constructor that only accepts the two generated fields
+        # For empty structs, create a zero-argument initialized constructor.
         return Expr(:function,
             Expr(:call, struct_name),
             Expr(:block,
-                Expr(:(=), :sm, Expr(:call, struct_name, QuoteNode(:Root), QuoteNode(:Root))),
-                Expr(:call, :(Hsm.on_initial!), :sm, QuoteNode(:Root)),
+                Expr(:(=), :sm, Expr(:call,
+                    struct_name,
+                    nothing,
+                    :(Base.UInt8(0)),
+                    :(Base.UInt8(0)),
+                    nothing,
+                    QuoteNode(:Root),
+                    QuoteNode(:Root))),
+                Expr(:call, :(Hsm._initialize_machine!), :sm),
                 Expr(:return, :sm)
             )
         )
     else
         # Create function signature: MyStruct(args::Vararg{Any,n})
-        # This constructor accepts exactly the original field count and appends :Root for the two new fields
+        # This constructor accepts exactly the original field count and appends
+        # initialized values for the generated runtime fields.
         vararg_type = Expr(:curly, :Vararg, :Any, field_count)
         func_signature = Expr(:call, struct_name, Expr(:(::), :args, vararg_type))
 
-        # Create function body: sm = MyStruct(args..., :Root, :Root); Hsm.on_initial!(sm, :Root); return sm
+        # Initialize history before the Root initial transition, since that
+        # transition may immediately enter a registered composite state.
         func_body = Expr(:block,
-            Expr(:(=), :sm, Expr(:call, struct_name, :(args...), QuoteNode(:Root), QuoteNode(:Root))),
-            Expr(:call, :(Hsm.on_initial!), :sm, QuoteNode(:Root)),
+            Expr(:(=), :sm, Expr(:call,
+                struct_name,
+                :(args...),
+                nothing,
+                :(Base.UInt8(0)),
+                :(Base.UInt8(0)),
+                nothing,
+                QuoteNode(:Root),
+                QuoteNode(:Root))),
+            Expr(:call, :(Hsm._initialize_machine!), :sm),
             :sm
         )
 
@@ -989,14 +2336,95 @@ function create_additional_constructor(struct_name, field_count)
 end
 
 """
-    create_state_machine_concrete_interface(struct_name, current_field, source_field)
+    create_state_machine_concrete_interface(
+        struct_name,
+        history_field,
+        transition_phase_field,
+        lifecycle_field,
+        pending_completion_field,
+        current_field,
+        source_field,
+    )
 
 Create Expr block defining the Hsm concrete interface methods that access struct-specific fields.
 These methods must be defined on the concrete type because each struct has unique gensym'd field names.
 """
-function create_state_machine_concrete_interface(struct_name, current_field, source_field)
+function create_state_machine_concrete_interface(
+    struct_name,
+    history_field,
+    transition_phase_field,
+    lifecycle_field,
+    pending_completion_field,
+    current_field,
+    source_field,
+)
     # Create the interface methods as expressions
     interface_methods = Expr(:block)
+
+    # Internal concrete storage used for history and reentrancy enforcement.
+    push!(interface_methods.args,
+        Expr(:function,
+            Expr(:call, :(Hsm._history_storage), Expr(:(::), :sm, struct_name)),
+            Expr(:call, :getfield, :sm, QuoteNode(history_field))
+        )
+    )
+
+    push!(interface_methods.args,
+        Expr(:function,
+            Expr(:call, :(Hsm._history_storage!),
+                Expr(:(::), :sm, struct_name),
+                Expr(:(::), :storage, :(Vector{Symbol}))),
+            Expr(:call, :setfield!, :sm, QuoteNode(history_field), :storage)
+        )
+    )
+
+    push!(interface_methods.args,
+        Expr(:function,
+            Expr(:call, :(Hsm._transition_phase), Expr(:(::), :sm, struct_name)),
+            Expr(:call, :getfield, :sm, QuoteNode(transition_phase_field))
+        )
+    )
+
+    push!(interface_methods.args,
+        Expr(:function,
+            Expr(:call, :(Hsm._transition_phase!),
+                Expr(:(::), :sm, struct_name),
+                Expr(:(::), :phase, :UInt8)),
+            Expr(:call, :setfield!, :sm, QuoteNode(transition_phase_field), :phase)
+        )
+    )
+
+    push!(interface_methods.args,
+        Expr(:function,
+            Expr(:call, :(Hsm._lifecycle), Expr(:(::), :sm, struct_name)),
+            Expr(:call, :getfield, :sm, QuoteNode(lifecycle_field))
+        )
+    )
+
+    push!(interface_methods.args,
+        Expr(:function,
+            Expr(:call, :(Hsm._lifecycle!),
+                Expr(:(::), :sm, struct_name),
+                Expr(:(::), :status, :UInt8)),
+            Expr(:call, :setfield!, :sm, QuoteNode(lifecycle_field), :status)
+        )
+    )
+
+    push!(interface_methods.args,
+        Expr(:function,
+            Expr(:call, :(Hsm._pending_completion), Expr(:(::), :sm, struct_name)),
+            Expr(:call, :getfield, :sm, QuoteNode(pending_completion_field))
+        )
+    )
+
+    push!(interface_methods.args,
+        Expr(:function,
+            Expr(:call, :(Hsm._pending_completion!),
+                Expr(:(::), :sm, struct_name),
+                Expr(:(::), :state, :(Union{Nothing,Symbol}))),
+            Expr(:call, :setfield!, :sm, QuoteNode(pending_completion_field), :state)
+        )
+    )
 
     # Hsm.current(sm::StructName) = getfield(sm, :generated_current_field)
     push!(interface_methods.args,
@@ -1047,10 +2475,39 @@ function create_state_machine_abstract_interface(interface_type)
     # Create the interface methods as expressions
     interface_methods = Expr(:block)
 
+    # Static transition kernels already carry the state as a concrete Val.
+    # These generic Val fallbacks let them bypass the runtime Symbol switch
+    # while preserving state::Any handlers and the library defaults.
+    for (handler_name, fallback_name) in (
+        (:on_initial!, :_on_initial_fallback!),
+        (:on_entry!, :_on_entry_fallback!),
+        (:on_exit!, :_on_exit_fallback!),
+    )
+        state_parameter = gensym("STATE")
+        push!(interface_methods.args,
+            Expr(:function,
+                Expr(:where,
+                    Expr(:call,
+                        GlobalRef(@__MODULE__, handler_name),
+                        Expr(:(::), :sm, interface_type),
+                        Expr(
+                            :(::),
+                            :state,
+                            Expr(:curly, :Val, state_parameter),
+                        )),
+                    state_parameter),
+                Expr(:call,
+                    GlobalRef(@__MODULE__, fallback_name),
+                    :sm,
+                    state_parameter)
+            )
+        )
+    end
+
     # Default initial handler
     push!(interface_methods.args,
         Expr(:macrocall,
-            :(ValSplit.var"@valsplit"),
+            GlobalRef(ValSplit, Symbol("@valsplit")),
             LineNumberNode(@__LINE__, @__FILE__),
             Expr(:function,
                 Expr(:call, :(Hsm.on_initial!),
@@ -1064,7 +2521,7 @@ function create_state_machine_abstract_interface(interface_type)
     # Default entry handler
     push!(interface_methods.args,
         Expr(:macrocall,
-            :(ValSplit.var"@valsplit"),
+            GlobalRef(ValSplit, Symbol("@valsplit")),
             LineNumberNode(@__LINE__, @__FILE__),
             Expr(:function,
                 Expr(:call, :(Hsm.on_entry!),
@@ -1078,7 +2535,7 @@ function create_state_machine_abstract_interface(interface_type)
     # Default exit handler
     push!(interface_methods.args,
         Expr(:macrocall,
-            :(ValSplit.var"@valsplit"),
+            GlobalRef(ValSplit, Symbol("@valsplit")),
             LineNumberNode(@__LINE__, @__FILE__),
             Expr(:function,
                 Expr(:call, :(Hsm.on_exit!),
@@ -1092,7 +2549,7 @@ function create_state_machine_abstract_interface(interface_type)
     # Default event handler
     push!(interface_methods.args,
         Expr(:macrocall,
-            :(ValSplit.var"@valsplit"),
+            GlobalRef(ValSplit, Symbol("@valsplit")),
             LineNumberNode(@__LINE__, @__FILE__),
             Expr(:function,
                 Expr(:where,
@@ -1110,7 +2567,7 @@ function create_state_machine_abstract_interface(interface_type)
     # Default ancestor method with error
     push!(interface_methods.args,
         Expr(:macrocall,
-            :(ValSplit.var"@valsplit"),
+            GlobalRef(ValSplit, Symbol("@valsplit")),
             LineNumberNode(@__LINE__, @__FILE__),
             Expr(:function,
                 Expr(:call, :(Hsm.ancestor),
@@ -1118,7 +2575,7 @@ function create_state_machine_abstract_interface(interface_type)
                     Expr(:call, :Val, Expr(:(::), :state, :Symbol))),
                 Expr(:block,
                     Expr(:call, :throw,
-                        Expr(:call, :HsmStateError,
+                        Expr(:call, GlobalRef(@__MODULE__, :HsmStateError),
                             Expr(:string, "No ancestor defined for state ", :state, " in ", interface_type, ". Use the @statedef macro to define state relationships."))),
                     Expr(:return, QuoteNode(:Root))
                 )

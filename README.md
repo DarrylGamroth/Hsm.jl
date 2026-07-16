@@ -3,7 +3,10 @@
 [![CI](https://github.com/DarrylGamroth/Hsm.jl/actions/workflows/ci.yml/badge.svg)](https://github.com/DarrylGamroth/Hsm.jl/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/DarrylGamroth/Hsm.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/DarrylGamroth/Hsm.jl)
 
-A zero-allocation, dynamic dispatch-free hierarchical state machine library for Julia.
+A zero-allocation, statically specialized hierarchical state machine library for Julia.
+
+The supported UML/PSSM subset and requirement-to-test mapping are recorded in
+[SEMANTICS.md](SEMANTICS.md).
 
 ## Overview
 
@@ -14,8 +17,12 @@ Hsm.jl provides a framework for implementing hierarchical state machines (HSMs) 
 
 ## Features
 
-- **Zero-allocation design**: No allocations during state transitions and event processing
-- **No dynamic dispatch**: All event handlers use compile-time dispatch via Val types
+- **Zero-allocation steady state**: Warmed transitions and event processing do not allocate when user callbacks do not allocate
+- **Specialized transition kernels**: Runtime `Symbol` values are finitely split before entering compile-time-specialized handlers and transitions
+- **Static transition edges**: Handler targets are validated and specialized at macro expansion time
+- **UML history support**: Explicit shallow and deep history transitions for composite states
+- **Static UML control vertices**: Choice, FinalState/completion, and terminate support without changing the `Symbol` API
+- **Run-to-completion enforcement**: Reentrant dispatch and transitions are rejected
 - **Clean macro-based syntax**: Simple macros for defining state machine behavior
 - **Automatic initialization**: State machines are auto-initialized when created
 - **Abstract type support**: Define state machine families with shared interfaces using `@abstracthsmdef`
@@ -136,11 +143,26 @@ The `example/` directory contains various examples:
 - `simplest_example.jl`: Basic state machine with a simple hierarchy
 - `abstract_example.jl`: Using `@abstracthsmdef` to create a family of related state machines
 - `example.jl`: More complex hierarchical state machine example
+- `pseudostates_example.jl`: Complete history, choice, FinalState/completion,
+  terminate, and lifecycle example with self-checking assertions
+
+Run any example from the repository root using the package environment:
+
+```sh
+julia --startup-file=no --project=. example/pseudostates_example.jl
+```
+
+The examples use only Hsm.jl and Julia standard libraries and are smoke-tested
+on the minimum and current supported Julia releases.
 
 ## Advanced Features
 
 - Entry and exit actions for states
 - Initial transitions for hierarchical initialization
+- Explicit shallow/deep history and default-history transitions
+- Runtime choice among statically named transition edges
+- FinalState and completion transitions
+- Terminate pseudostates and lifecycle inspection
 - Event handling with arguments
 - Complex state hierarchies with nested states
 - Default event handlers with the `Any` keyword
@@ -155,6 +177,142 @@ The `example/` directory contains various examples:
 
 - Self transitions are treated as external transitions (exit/entry actions run).
 - `trace_transition_end` reports the direct transition target; nested initial transitions may enter deeper states.
+- A literal transition target inside a concrete-state handler, such as
+  `Hsm.transition!(sm, :Running)`, uses a statically specialized entry/exit
+  path. Transition targets inside handler macros must be literal `Symbol`s;
+  computed targets and transitions from generic `state::Any` handlers are
+  rejected. Direct calls outside handler macros retain the dynamic `Symbol`
+  hierarchy walk.
+- `@on_entry` and `@on_exit` Behaviors cannot initiate transitions. The macros
+  reject direct attempts, and the runtime guard catches indirect attempts.
+- An `@on_initial` handler models an initial Pseudostate: it may contain at
+  most one unconditional outgoing transition.
+- `@choice` is the explicit conditional control vertex; its runtime guards
+  choose among compile-time-known transition edges.
+- `dispatch!` is run-to-completion. Queue an event for later processing instead
+  of calling `dispatch!` recursively from a handler or transition callback.
+
+## History Transitions
+
+History is explicit and does not change the meaning of `transition!`. Pass the
+composite state that owns the implicit Region and a statically named history
+mode:
+
+```julia
+@on_event function(sm::Machine, ::Outside, ::Resume, arg)
+    return Hsm.transition_history!(sm, :Operating, Hsm.DeepHistory())
+end
+```
+
+Literal owners used by handler macros are declared automatically. If history
+is reached only through direct API calls outside a handler, declare its owner
+explicitly with `@historydef Machine :Operating`.
+
+- `DeepHistory()` restores the former active leaf and enters the complete path
+  without replaying intermediate initial transitions.
+- `ShallowHistory()` restores the former direct child, then follows that
+  child's normal initial transition.
+- If the composite has no recorded history, its declared explicit default
+  history edge is taken when present; otherwise its `@on_initial` handler
+  selects the normal default state.
+- To model an explicit default edge from the history Pseudostate, declare its
+  kind and target. Its optional effect is separate from the incoming history
+  Transition effect:
+
+  ```julia
+  @historydef Machine :Operating Hsm.DeepHistory() :Idle
+
+  @on_history_default function(
+      sm::Machine,
+      ::Operating,
+      ::DeepHistory,
+  )
+      sm.resumed_from_default = true
+  end
+  ```
+
+- An optional `do` block is the incoming history transition's effect and runs
+  between exit and entry Behaviors.
+
+For machines that declare history, `@hsmdef` allocates concrete per-instance
+history storage during construction. Machines without history do not allocate
+that storage. Reading, recording, and restoring history are allocation-free
+after warmup. Declare all states before constructing an instance; the state
+graph is treated as closed for that instance.
+
+## Choice Pseudostates
+
+Use `@choice` when runtime data selects among a finite set of static edges:
+
+```julia
+@on_event function(sm::Machine, ::Waiting, ::Classify, item)
+    return @choice sm :Processing begin
+        sm.last_item = item                 # incoming Transition effect
+        if ispriority(item)
+            Hsm.transition!(sm, :Priority) do
+                sm.priority_count += 1      # selected outgoing effect
+            end
+        elseif isvalid(item)
+            Hsm.transition!(sm, :Normal)
+        else
+            Hsm.transition!(sm, :Rejected)
+        end
+    end
+end
+```
+
+The owner and targets must be literal registered `Symbol`s, and an `else`
+edge is required. Hsm.jl enters the owner's path before evaluating every
+guard, then deterministically selects the first enabled guarded edge in source
+order. Only the selected edge's effect runs. This deterministic selection is a
+documented choice-strategy specialization of PSSM.
+
+## Final States and Completion Transitions
+
+Declare a FinalState in a composite State's implicit Region and handle that
+composite's completion event with `@on_completion`:
+
+```julia
+@statedef Machine :Processing
+@finaldef Machine :ProcessingDone :Processing
+@statedef Machine :Idle
+
+@on_completion function(sm::Machine, ::Processing)
+    return Hsm.transition!(sm, :Idle)
+end
+```
+
+Entering a nested FinalState completes its owner and clears that Region's
+history. Entering a top-level FinalState completes the whole machine.
+Completion transitions run before another external event and may use ordinary
+static transitions, history, or `@choice`. FinalStates cannot own children or
+define State Behaviors.
+
+Use `isrunning(sm)`, `iscomplete(sm)`, and `isterminated(sm)` to inspect the
+lifecycle. Completed machines reject subsequent dispatches and transitions.
+
+## Terminate Pseudostates
+
+`@terminatedef` declares a named terminate target without overloading
+`transition!`:
+
+```julia
+@terminatedef Machine :EmergencyStop
+
+@on_event function(sm::Machine, ::Running, ::Emergency, arg)
+    return Hsm.transition!(sm, :EmergencyStop)
+end
+```
+
+The incoming transition performs its normal exits and effect and enters any
+required containing States. Reaching terminate then stops the entire machine
+without executing cleanup exits for the remaining active configuration. The
+pseudostate never becomes `current`; Hsm.jl stores `:Root` and marks the
+machine terminated. Further dispatches and transitions are rejected.
+
+Hsm.jl models one active leaf in one implicit Region. Junctions, entry/exit
+connection-point Pseudostates, fork/join, orthogonal Regions, `doActivity`, and
+deferred events are not currently implemented.
 
 ## Tracing Hooks
 
@@ -179,6 +337,11 @@ Hsm.trace_transition_end(sm, from::Symbol, to::Symbol)     # Transition complete
 Hsm.trace_entry(sm, state::Symbol)    # Before on_entry! is called
 Hsm.trace_exit(sm, state::Symbol)     # Before on_exit! is called
 Hsm.trace_initial(sm, state::Symbol)  # Before on_initial! is called
+
+# Choice lifecycle
+Hsm.trace_choice_begin(sm, from::Symbol, owner::Symbol)
+Hsm.trace_choice_selected(sm, from::Symbol, target::Symbol)
+Hsm.trace_choice_end(sm, from::Symbol, target::Symbol)
 ```
 
 ### Example: Logging State Machine Activity
@@ -384,6 +547,35 @@ Benefits of abstract state machines:
 3. **State machines must be mutable**: Use `mutable struct`, not `struct`
 4. **Document state hierarchies**: Make state relationships clear in comments or documentation
 
+### Precompiling a Downstream Machine
+
+Hsm specializes dispatch and transition paths for each concrete state machine.
+If first-use latency matters, a downstream package can add a deterministic
+`PrecompileTools` workload after declaring all states and handlers:
+
+```julia
+using PrecompileTools
+
+@setup_workload begin
+    @compile_workload begin
+        sm = MyMachine()
+        Hsm.dispatch!(sm, :RepresentativeEvent, nothing)
+    end
+end
+```
+
+Replace the placeholders with representative event sequences and argument
+types used by the application. Include history, choice, completion, or
+termination paths only when the machine uses them. Keep workloads bounded and
+deterministic; precompiling one event signature does not compile unrelated
+argument types or transition paths.
+
+This workload belongs in the downstream package because Hsm cannot know its
+state graph in advance. For an application image or sysimage, exercise the same
+representative workload while building the image. Broader workloads can reduce
+first-use latency but increase precompile time and cache size, so measure that
+tradeoff for the application.
+
 ## Error Handling
 
 Hsm.jl includes a comprehensive error handling system with custom exception types to help diagnose issues:
@@ -400,8 +592,6 @@ These exception types provide more specific error information than generic error
 - **State Argument Format**: State arguments must be of the form `::StateName` or `state::StateName`
 - **Event Argument Format**: Event arguments must be of the form `::EventName` or `event::EventName`
 - **Ancestor Errors**: Undefined state relationships or invalid relationship expressions
-
-```
 
 ## License
 

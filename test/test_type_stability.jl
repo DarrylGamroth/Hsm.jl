@@ -35,18 +35,28 @@ using Hsm
         return Hsm.EventHandled
     end
 
+    @on_event function (sm::TypeStableSm, ::StateA, ::Toggle, arg)
+        return Hsm.transition!(sm, :StateB)
+    end
+
+    @on_event function (sm::TypeStableSm, ::StateB, ::Toggle, arg)
+        return Hsm.transition!(sm, :StateA)
+    end
+
     @on_event function (sm::TypeStableSm, state::Any, event::Any, arg)
         return Hsm.EventNotHandled
     end
 
     dispatch_ping!(sm::TypeStableSm) = Hsm.dispatch!(sm, :Ping, 1)
     dispatch_unknown!(sm::TypeStableSm) = Hsm.dispatch!(sm, :Unknown, nothing)
+    dispatch_toggle!(sm::TypeStableSm) = Hsm.dispatch!(sm, :Toggle, nothing)
     transition_other!(sm::TypeStableSm) =
         Hsm.transition!(sm, Hsm.current(sm) === :StateA ? :StateB : :StateA)
 
     dispatch_bytes(sm::TypeStableSm) = @allocated dispatch_ping!(sm)
     unknown_bytes(sm::TypeStableSm) = @allocated dispatch_unknown!(sm)
     transition_bytes(sm::TypeStableSm) = @allocated transition_other!(sm)
+    toggle_bytes(sm::TypeStableSm) = @allocated dispatch_toggle!(sm)
 
     sm = TypeStableSm(0, 0, 0)
 
@@ -54,6 +64,8 @@ using Hsm
     @test @inferred(Hsm.on_exit!(sm, :StateA)) === nothing
     @test @inferred(dispatch_ping!(sm)) === Hsm.EventHandled
     @test @inferred(dispatch_unknown!(sm)) === Hsm.EventNotHandled
+    @test @inferred(dispatch_toggle!(sm)) === Hsm.EventHandled
+    @test @inferred(dispatch_toggle!(sm)) === Hsm.EventHandled
     @test Hsm.source(sm) === Hsm.current(sm)
     @test @inferred(transition_other!(sm)) === Hsm.EventHandled
 
@@ -61,8 +73,12 @@ using Hsm
     dispatch_bytes(sm)
     unknown_bytes(sm)
     transition_bytes(sm)
+    toggle_bytes(sm)
+    toggle_bytes(sm)
 
     @test dispatch_bytes(sm) == 0
     @test unknown_bytes(sm) == 0
     @test transition_bytes(sm) == 0
+    @test toggle_bytes(sm) == 0
+    @test toggle_bytes(sm) == 0
 end

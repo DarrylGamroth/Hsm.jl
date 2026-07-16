@@ -1,16 +1,9 @@
 """
-This file contains an example of a hierarchical state machine implemented using the Hsm.jl library, using macros for all boilerplate.
-See example.png for a graphical representation of the state machine.
+This file contains an example of a hierarchical state machine implemented
+using the Hsm.jl library, using macros for all boilerplate.
 """
 
-using Revise
-using BenchmarkTools
 using Hsm
-using ValSplit
-using Logging
-
-# Set the global log level to debug so @debug statements are shown
-Logging.global_logger(ConsoleLogger(stderr, Logging.Debug))
 
 # Define the state machine using the macro
 @hsmdef mutable struct HsmTest
@@ -244,11 +237,19 @@ function test2(sm::HsmTest)
     nothing
 end
 
-hsm = HsmTest(buf=UInt8[], foo=0)
-test(hsm)
-
 function profile_test(hsm, n)
     for _ = 1:n
         test2(hsm)
     end
+end
+
+function main(args)
+    hsm = HsmTest(UInt8[], 0)
+    test(hsm)
+    println("Final state: ", Hsm.current(hsm))
+    return nothing
+end
+
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    main(ARGS)
 end

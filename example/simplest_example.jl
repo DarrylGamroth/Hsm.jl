@@ -1,8 +1,4 @@
-using Pkg
-Pkg.activate(".")
-
 using Hsm
-using ValSplit
 
 @hsmdef mutable struct TestHsm
     foo::Int
@@ -48,7 +44,7 @@ end
     return Hsm.EventHandled
 end
 
-function (@main)(ARGS)
+function main(args)
     # Create and initialize a state machine
     sm = TestHsm(0, "Hello")
     @show sm
@@ -63,5 +59,9 @@ function (@main)(ARGS)
     # Test the default event handler
     Hsm.dispatch!(sm, :UnknownEvent, "Some data")
     println("After UnknownEvent, current state: ", Hsm.current(sm))
+    return nothing
 end
 
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    main(ARGS)
+end

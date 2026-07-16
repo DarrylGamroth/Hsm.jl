@@ -73,7 +73,7 @@ abstract type AbstractType end
         @test struct_def !== nothing
         @test constructor_def !== nothing
 
-        # Verify struct has the additional fields (original 3 + 2 new = 5 total)
+        # Verify struct has the generated runtime fields.
         struct_body = struct_def.args[3]
         field_expressions = filter(x -> x isa Expr && x.head == :(::), struct_body.args)
         field_names = [expr.args[1] for expr in field_expressions]
@@ -81,9 +81,13 @@ abstract type AbstractType end
         @test :counter in field_names
         @test :status in field_names
         @test :data in field_names
-        @test length(field_names) == 5  # 3 original + 2 generated fields
+        @test length(field_names) == 9  # 3 original + 6 generated fields
 
-        # Check that the last two fields are Symbol type
+        # History, phase, lifecycle, and pending completion precede current/source.
+        @test field_expressions[end-5].args[2] == :(Union{Nothing,Vector{Symbol}})
+        @test field_expressions[end-4].args[2] == :UInt8
+        @test field_expressions[end-3].args[2] == :UInt8
+        @test field_expressions[end-2].args[2] == :(Union{Nothing,Symbol})
         @test field_expressions[end-1].args[2] == :Symbol
         @test field_expressions[end].args[2] == :Symbol
 
@@ -154,9 +158,9 @@ abstract type AbstractType end
         end
         @test has_vararg_constructor
 
-        # Test that the struct has the right number of fields (3 original + 2 generated = 5)
+        # Test that the struct has the original and generated runtime fields.
         all_fields = filter(x -> x isa Expr && x.head == :(::), struct_def.args[3].args)
-        @test length(all_fields) == 5
+        @test length(all_fields) == 9
     end
 
     @testset "Field counting accuracy" begin
@@ -214,7 +218,7 @@ abstract type AbstractType end
 
         # Get the actual field names dynamically
         all_field_names = fieldnames(ComplexStruct)
-        @test length(all_field_names) == 5  # 3 original + 2 generated
+        @test length(all_field_names) == 9  # 3 original + 6 generated
 
         # Test constructor with original arguments
         obj = ComplexStruct(42, "test", ["a", "b", "c"])
