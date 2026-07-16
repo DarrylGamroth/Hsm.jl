@@ -10,13 +10,17 @@ using ValSplit
             end
         end
 
-        @test length(fieldnames(EmptyTestStruct)) == 2  # 0 original + 2 generated
+        @test length(fieldnames(EmptyTestStruct)) == 6  # 0 original + 6 generated
 
         # Should be able to construct with no arguments
         obj = EmptyTestStruct()
         empty_fields = fieldnames(EmptyTestStruct)
-        @test getfield(obj, empty_fields[1]) == :Root
-        @test getfield(obj, empty_fields[2]) == :Root
+        @test getfield(obj, empty_fields[1]) === nothing
+        @test getfield(obj, empty_fields[2]) == UInt8(0)
+        @test getfield(obj, empty_fields[3]) == UInt8(0)
+        @test getfield(obj, empty_fields[4]) === nothing
+        @test getfield(obj, empty_fields[end-1]) == :Root
+        @test getfield(obj, empty_fields[end]) == :Root
     end
 
     @testset "Struct with only type parameters" begin
@@ -25,13 +29,24 @@ using ValSplit
             end
         end
 
-        @test length(fieldnames(OnlyTypeParams)) == 2  # 0 original + 2 generated
+        @test length(fieldnames(OnlyTypeParams)) == 6  # 0 original + 6 generated
 
         # For parametric types, we need to construct with explicit types and all fields
-        obj = OnlyTypeParams{Int,String}(:Root, :Root)
+        obj = OnlyTypeParams{Int,String}(
+            nothing,
+            UInt8(0),
+            UInt8(0),
+            nothing,
+            :Root,
+            :Root,
+        )
         only_fields = fieldnames(OnlyTypeParams)
-        @test getfield(obj, only_fields[1]) == :Root
-        @test getfield(obj, only_fields[2]) == :Root
+        @test getfield(obj, only_fields[1]) === nothing
+        @test getfield(obj, only_fields[2]) == UInt8(0)
+        @test getfield(obj, only_fields[3]) == UInt8(0)
+        @test getfield(obj, only_fields[4]) === nothing
+        @test getfield(obj, only_fields[end-1]) == :Root
+        @test getfield(obj, only_fields[end]) == :Root
     end
 
     @testset "Single field variations" begin
@@ -79,7 +94,7 @@ using ValSplit
 
         @test hasfield(ImmutableStruct, :x)
         @test hasfield(ImmutableStruct, :y)
-        @test length(fieldnames(ImmutableStruct)) == 4  # 2 original + 2 generated
+        @test length(fieldnames(ImmutableStruct)) == 8  # 2 original + 6 generated
 
         obj = ImmutableStruct(100, "immutable")
         @test obj.x == 100
@@ -157,14 +172,23 @@ using ValSplit
 
         @test hasfield(OuterStruct, :value)
         @test hasfield(OuterStruct, :inner)
-        @test length(fieldnames(OuterStruct)) == 4  # 2 original + 2 generated
+        @test length(fieldnames(OuterStruct)) == 8  # 2 original + 6 generated
 
         # Inner struct should not have the additional fields
         @test hasfield(InnerStruct, :inner_value)
         @test length(fieldnames(InnerStruct)) == 1  # Only original field
 
         inner = InnerStruct("inner test")
-        obj = OuterStruct(42, inner, :Root, :Root)
+        obj = OuterStruct(
+            42,
+            inner,
+            nothing,
+            UInt8(0),
+            UInt8(0),
+            nothing,
+            :Root,
+            :Root,
+        )
         @test obj.value == 42
         @test obj.inner.inner_value == "inner test"
 

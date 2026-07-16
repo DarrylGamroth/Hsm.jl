@@ -28,11 +28,7 @@
 #
 # Compare with simplest_example.jl which uses a single concrete type without inheritance.
 
-using Pkg
-Pkg.activate(".")
-
 using Hsm
-using ValSplit
 
 # Define an abstract state machine type with shared interface
 # This creates both the abstract type and the HSM interface methods
@@ -167,7 +163,7 @@ function run_vehicle_scenario(vehicle::VehicleController, name::String)
     println("Final state: $(Hsm.current(vehicle))")
 end
 
-function (@main)(ARGS)
+function main(args)
     println("=== Abstract State Machine Example ===")
     println("Demonstrating @abstracthsmdef with shared interface\n")
     
@@ -193,4 +189,9 @@ function (@main)(ARGS)
         println("  Speed: $(vehicle.speed) km/h")
         println("  Fuel: $(vehicle.fuel) L")
     end
+    return nothing
+end
+
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    main(ARGS)
 end

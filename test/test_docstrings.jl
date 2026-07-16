@@ -146,4 +146,32 @@ using Hsm
         sm = ParametricConcreteHsm(42)
         @test sm.value == 42
     end
+
+    @testset "Pseudostate and lifecycle API documentation" begin
+        function rendered_doc(name::Symbol)
+            binding = Base.Docs.Binding(Hsm, name)
+            return sprint(show, MIME("text/plain"), Base.Docs.doc(binding))
+        end
+
+        for name in (
+            :isrunning,
+            :iscomplete,
+            :isterminated,
+            :transition_history!,
+            Symbol("@choice"),
+            Symbol("@finaldef"),
+            Symbol("@on_completion"),
+            Symbol("@terminatedef"),
+        )
+            @test !occursin("No documentation found", rendered_doc(name))
+        end
+        @test occursin(
+            "declared with @historydef",
+            rendered_doc(:transition_history!),
+        )
+        @test occursin(
+            "first enabled guarded edge",
+            rendered_doc(Symbol("@choice")),
+        )
+    end
 end
