@@ -69,6 +69,19 @@ using Hsm
     rewritten = Hsm.rewrite_static_transitions(literal, :sm, :Leaf)
     @test rewritten.args[1] == GlobalRef(Hsm, :_transition_from!)
 
+    action_first = :(Hsm.transition!(effect, sm, :Other))
+    rewritten_action = Hsm.rewrite_static_transitions(action_first, :sm, :Leaf)
+    @test rewritten_action.args[1] == GlobalRef(Hsm, :_transition_from!)
+    @test rewritten_action.args[2] === :effect
+
+    history_action_first = :(
+        Hsm.transition_history!(effect, sm, :Parent, Hsm.DeepHistory())
+    )
+    rewritten_history =
+        Hsm.rewrite_static_transitions(history_action_first, :sm, :Leaf)
+    @test rewritten_history.args[1] == GlobalRef(Hsm, :_transition_history_from!)
+    @test rewritten_history.args[2] === :effect
+
     dynamic = :(Hsm.transition!(sm, target))
     @test_throws Hsm.HsmMacroError Hsm.rewrite_static_transitions(dynamic, :sm, :Leaf)
 

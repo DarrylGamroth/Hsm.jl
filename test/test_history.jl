@@ -252,6 +252,14 @@ using AllocCheck
     @historydef InvalidDefaultHistorySm :InvalidOwner Hsm.DeepHistory() :MissingDefault
     @test_throws Hsm.HsmStateError InvalidDefaultHistorySm()
 
+    @hsmdef mutable struct ConflictingDefaultHistorySm end
+    @statedef ConflictingDefaultHistorySm :ConflictingOwner
+    @statedef ConflictingDefaultHistorySm :ConflictingA :ConflictingOwner
+    @statedef ConflictingDefaultHistorySm :ConflictingB :ConflictingOwner
+    @historydef ConflictingDefaultHistorySm :ConflictingOwner Hsm.DeepHistory() :ConflictingA
+    @historydef ConflictingDefaultHistorySm :ConflictingOwner Hsm.DeepHistory() :ConflictingB
+    @test_throws Hsm.HsmStateError ConflictingDefaultHistorySm()
+
     @hsmdef mutable struct DeclaredHistoryTestSm end
     @statedef DeclaredHistoryTestSm :DeclaredComposite
     @statedef DeclaredHistoryTestSm :DeclaredLeaf :DeclaredComposite

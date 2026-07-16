@@ -120,6 +120,55 @@ using Hsm
         :enter_ChoicePositive,
     ]
 
+    @hsmdef mutable struct AncestorChoiceSm
+        log::Vector{Symbol}
+    end
+
+    @statedef AncestorChoiceSm :ChoiceSource
+    @statedef AncestorChoiceSm :ChoiceSourceLeaf :ChoiceSource
+    @statedef AncestorChoiceSm :AncestorPositive
+    @statedef AncestorChoiceSm :AncestorNegative
+
+    @on_initial function (sm::AncestorChoiceSm, ::Root)
+        return Hsm.transition!(sm, :ChoiceSource)
+    end
+
+    @on_initial function (sm::AncestorChoiceSm, ::ChoiceSource)
+        return Hsm.transition!(sm, :ChoiceSourceLeaf)
+    end
+
+    @on_entry function (sm::AncestorChoiceSm, state::Any)
+        push!(sm.log, Symbol(:enter_, state))
+        return nothing
+    end
+
+    @on_exit function (sm::AncestorChoiceSm, state::Any)
+        push!(sm.log, Symbol(:exit_, state))
+        return nothing
+    end
+
+    @on_event function (sm::AncestorChoiceSm, ::ChoiceSource, ::AncestorChoose, arg)
+        return @choice sm :Root begin
+            push!(sm.log, :ancestor_incoming)
+            if arg
+                Hsm.transition!(sm, :AncestorPositive)
+            else
+                Hsm.transition!(sm, :AncestorNegative)
+            end
+        end
+    end
+
+    ancestor_choice = AncestorChoiceSm(Symbol[])
+    empty!(ancestor_choice.log)
+    @test Hsm.dispatch!(ancestor_choice, :AncestorChoose, true) === Hsm.EventHandled
+    @test Hsm.current(ancestor_choice) === :AncestorPositive
+    @test ancestor_choice.log == [
+        :exit_ChoiceSourceLeaf,
+        :exit_ChoiceSource,
+        :ancestor_incoming,
+        :enter_AncestorPositive,
+    ]
+
     @hsmdef mutable struct InitialChoiceSm
         positive::Bool
     end
