@@ -8,11 +8,16 @@ using Hsm
         events::Int
     end
 
-    @statedef TypeStableSm :StateA
-    @statedef TypeStableSm :StateB
+    @statedef TypeStableSm :StableParent
+    @statedef TypeStableSm :StableLeaf :StableParent
+    @statedef TypeStableSm :StableOther
 
     @on_initial function (sm::TypeStableSm, ::Root)
-        return Hsm.transition!(sm, :StateA)
+        return Hsm.transition!(sm, :StableParent)
+    end
+
+    @on_initial function (sm::TypeStableSm, ::StableParent)
+        return Hsm.transition!(sm, :StableLeaf)
     end
 
     @on_entry function (sm::TypeStableSm, state::Any)
@@ -25,60 +30,99 @@ using Hsm
         return nothing
     end
 
-    @on_event function (sm::TypeStableSm, ::StateA, ::Ping, arg::Int)
+    @on_event function (sm::TypeStableSm, ::StableLeaf, ::StablePing, arg::Int)
         sm.events += arg
         return Hsm.EventHandled
     end
 
-    @on_event function (sm::TypeStableSm, ::StateB, ::Ping, arg::Int)
+    @on_event function (
+        sm::TypeStableSm,
+        ::StableParent,
+        ::StableAncestor,
+        arg::Int,
+    )
         sm.events += arg
         return Hsm.EventHandled
     end
 
-    @on_event function (sm::TypeStableSm, ::StateA, ::Toggle, arg)
-        return Hsm.transition!(sm, :StateB)
+    @on_event function (sm::TypeStableSm, ::StableLeaf, ::StableMove, arg)
+        return Hsm.transition!(sm, :StableOther) do
+            sm.events += 10
+        end
     end
 
-    @on_event function (sm::TypeStableSm, ::StateB, ::Toggle, arg)
-        return Hsm.transition!(sm, :StateA)
+    @on_event function (sm::TypeStableSm, ::StableOther, ::StableSelf, arg)
+        return Hsm.transition!(sm, :StableOther) do
+            sm.events += 100
+        end
     end
 
-    @on_event function (sm::TypeStableSm, state::Any, event::Any, arg)
-        return Hsm.EventNotHandled
+    @on_event function (sm::TypeStableSm, ::StableOther, ::StableReturn, arg)
+        return Hsm.transition!(sm, :StableParent)
     end
 
-    dispatch_ping!(sm::TypeStableSm) = Hsm.dispatch!(sm, :Ping, 1)
-    dispatch_unknown!(sm::TypeStableSm) = Hsm.dispatch!(sm, :Unknown, nothing)
-    dispatch_toggle!(sm::TypeStableSm) = Hsm.dispatch!(sm, :Toggle, nothing)
-    transition_other!(sm::TypeStableSm) =
-        Hsm.transition!(sm, Hsm.current(sm) === :StateA ? :StateB : :StateA)
+    dispatch_ping!(sm::TypeStableSm) = Hsm.dispatch!(sm, :StablePing, 1)
+    dispatch_ancestor!(sm::TypeStableSm) =
+        Hsm.dispatch!(sm, :StableAncestor, 1)
+    dispatch_unknown!(sm::TypeStableSm) =
+        Hsm.dispatch!(sm, :StableUnknown, nothing)
+    dispatch_move!(sm::TypeStableSm) = Hsm.dispatch!(sm, :StableMove, nothing)
+    dispatch_self!(sm::TypeStableSm) = Hsm.dispatch!(sm, :StableSelf, nothing)
+    dispatch_return!(sm::TypeStableSm) =
+        Hsm.dispatch!(sm, :StableReturn, nothing)
+    transition_other!(sm::TypeStableSm) = Hsm.transition!(
+        sm,
+        Hsm.current(sm) === :StableLeaf ? :StableOther : :StableParent,
+    )
 
-    dispatch_bytes(sm::TypeStableSm) = @allocated dispatch_ping!(sm)
-    unknown_bytes(sm::TypeStableSm) = @allocated dispatch_unknown!(sm)
-    transition_bytes(sm::TypeStableSm) = @allocated transition_other!(sm)
-    toggle_bytes(sm::TypeStableSm) = @allocated dispatch_toggle!(sm)
+    allocated_call(f, sm::TypeStableSm) = @allocated f(sm)
 
-    sm = TypeStableSm(0, 0, 0)
+    handlers = TypeStableSm(0, 0, 0)
+    @test @inferred(Hsm.on_entry!(handlers, :StableLeaf)) === nothing
+    @test @inferred(Hsm.on_exit!(handlers, :StableLeaf)) === nothing
 
-    @test @inferred(Hsm.on_entry!(sm, :StateA)) === nothing
-    @test @inferred(Hsm.on_exit!(sm, :StateA)) === nothing
-    @test @inferred(dispatch_ping!(sm)) === Hsm.EventHandled
-    @test @inferred(dispatch_unknown!(sm)) === Hsm.EventNotHandled
-    @test @inferred(dispatch_toggle!(sm)) === Hsm.EventHandled
-    @test @inferred(dispatch_toggle!(sm)) === Hsm.EventHandled
-    @test Hsm.source(sm) === Hsm.current(sm)
-    @test @inferred(transition_other!(sm)) === Hsm.EventHandled
+    handled = TypeStableSm(0, 0, 0)
+    @test @inferred(dispatch_ping!(handled)) === Hsm.EventHandled
+    allocated_call(dispatch_ping!, handled)
+    @test allocated_call(dispatch_ping!, handled) == 0
 
-    # Warm the measurement barriers before checking the steady-state budget.
-    dispatch_bytes(sm)
-    unknown_bytes(sm)
-    transition_bytes(sm)
-    toggle_bytes(sm)
-    toggle_bytes(sm)
+    ancestor = TypeStableSm(0, 0, 0)
+    @test @inferred(dispatch_ancestor!(ancestor)) === Hsm.EventHandled
+    allocated_call(dispatch_ancestor!, ancestor)
+    @test allocated_call(dispatch_ancestor!, ancestor) == 0
 
-    @test dispatch_bytes(sm) == 0
-    @test unknown_bytes(sm) == 0
-    @test transition_bytes(sm) == 0
-    @test toggle_bytes(sm) == 0
-    @test toggle_bytes(sm) == 0
+    unhandled = TypeStableSm(0, 0, 0)
+    @test @inferred(dispatch_unknown!(unhandled)) === Hsm.EventNotHandled
+    allocated_call(dispatch_unknown!, unhandled)
+    @test allocated_call(dispatch_unknown!, unhandled) == 0
+
+    action = TypeStableSm(0, 0, 0)
+    dispatch_move!(action)
+    dispatch_return!(action)
+    @test Hsm.current(action) === :StableLeaf
+    @test @inferred(dispatch_move!(action)) === Hsm.EventHandled
+    dispatch_return!(action)
+    @test Hsm.current(action) === :StableLeaf
+    @test allocated_call(dispatch_move!, action) == 0
+
+    self_transition = TypeStableSm(0, 0, 0)
+    dispatch_move!(self_transition)
+    @test @inferred(dispatch_self!(self_transition)) === Hsm.EventHandled
+    allocated_call(dispatch_self!, self_transition)
+    @test allocated_call(dispatch_self!, self_transition) == 0
+
+    nested_initial = TypeStableSm(0, 0, 0)
+    dispatch_move!(nested_initial)
+    dispatch_return!(nested_initial)
+    dispatch_move!(nested_initial)
+    @test @inferred(dispatch_return!(nested_initial)) === Hsm.EventHandled
+    dispatch_move!(nested_initial)
+    @test allocated_call(dispatch_return!, nested_initial) == 0
+    @test Hsm.current(nested_initial) === :StableLeaf
+
+    dynamic_target = TypeStableSm(0, 0, 0)
+    @test @inferred(transition_other!(dynamic_target)) === Hsm.EventHandled
+    @test @inferred(transition_other!(dynamic_target)) === Hsm.EventHandled
+    allocated_call(transition_other!, dynamic_target)
+    @test allocated_call(transition_other!, dynamic_target) == 0
 end

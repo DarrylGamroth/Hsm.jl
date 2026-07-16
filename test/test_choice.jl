@@ -46,6 +46,31 @@ using Hsm
         end
     end
 
+    transition_from_choice_guard!(sm::ChoiceTestSm) =
+        Hsm.transition!(sm, :ChoiceB)
+    dispatch_from_choice_guard!(sm::ChoiceTestSm) =
+        Hsm.dispatch!(sm, :Decide, false)
+
+    @on_event function (sm::ChoiceTestSm, ::ChoiceA, ::BadGuardTransition, arg)
+        return @choice sm :Root begin
+            if transition_from_choice_guard!(sm) === Hsm.EventHandled
+                Hsm.transition!(sm, :ChoiceB)
+            else
+                Hsm.transition!(sm, :ChoiceC)
+            end
+        end
+    end
+
+    @on_event function (sm::ChoiceTestSm, ::ChoiceA, ::BadGuardDispatch, arg)
+        return @choice sm :Root begin
+            if dispatch_from_choice_guard!(sm) === Hsm.EventHandled
+                Hsm.transition!(sm, :ChoiceB)
+            else
+                Hsm.transition!(sm, :ChoiceC)
+            end
+        end
+    end
+
     choice = ChoiceTestSm(Symbol[], false)
     empty!(choice.log)
     @test Hsm.dispatch!(choice, :Decide, true) === Hsm.EventHandled
@@ -72,6 +97,13 @@ using Hsm
         :outgoing_b,
         :enter_ChoiceC,
     ]
+
+    for event in (:BadGuardTransition, :BadGuardDispatch)
+        invalid_guard = ChoiceTestSm(Symbol[], false)
+        @test_throws Hsm.HsmEventError Hsm.dispatch!(invalid_guard, event)
+        @test Hsm.current(invalid_guard) === :ChoiceA
+        @test Hsm._transition_phase(invalid_guard) == Hsm._TRANSITION_IDLE
+    end
 
     @hsmdef mutable struct NestedChoiceSm
         log::Vector{Symbol}
@@ -271,6 +303,38 @@ using Hsm
         end
     )
     @test_throws Hsm.HsmMacroError macroexpand(@__MODULE__, transition_guard)
+
+    incoming_transition = :(
+        Hsm.@on_event function (sm::ChoiceTestSm, ::ChoiceA, ::BadIncoming, arg)
+            return Hsm.@choice sm :Root begin
+                Hsm.transition!(sm, :ChoiceB)
+                if true
+                    Hsm.transition!(sm, :ChoiceB)
+                else
+                    Hsm.transition!(sm, :ChoiceC)
+                end
+            end
+        end
+    )
+    @test_throws Hsm.HsmMacroError macroexpand(@__MODULE__, incoming_transition)
+
+    outgoing_effect_transition = :(
+        Hsm.@on_event function (sm::ChoiceTestSm, ::ChoiceA, ::BadEffect, arg)
+            return Hsm.@choice sm :Root begin
+                if true
+                    Hsm.transition!(sm, :ChoiceB) do
+                        Hsm.transition!(sm, :ChoiceC)
+                    end
+                else
+                    Hsm.transition!(sm, :ChoiceC)
+                end
+            end
+        end
+    )
+    @test_throws Hsm.HsmMacroError macroexpand(
+        @__MODULE__,
+        outgoing_effect_transition,
+    )
 
     @test_throws Hsm.HsmMacroError macroexpand(
         @__MODULE__,

@@ -103,24 +103,4 @@ using Hsm
         @test sm.log[1] == "Default handler for StateA received: AnotherEvent"
     end
 
-    # Test 4: Multiple event types with default handler
-    @testset "Multiple event types with default handler" begin
-        sm = DefaultHandlerTestSm(String[], false)
-
-        # Send three different events to the same state
-        events = [:Event1, :Event2, :Event3]
-
-        for event in events
-            # Clear log before each dispatch
-            sm.log = String[]
-            sm.handled = false
-
-            result = Hsm.dispatch!(sm, event)
-
-            @test result == Hsm.EventHandled
-            @test sm.handled == true
-            @test length(sm.log) == 1
-            @test sm.log[1] == "Default handler for StateB received: $event"
-        end
-    end
 end

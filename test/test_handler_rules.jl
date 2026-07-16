@@ -113,6 +113,20 @@ end
     )
     @test_throws Hsm.HsmMacroError macroexpand(@__MODULE__, exit_expr)
 
+    history_default_expr = :(
+        Hsm.@on_history_default function (
+            sm::HandlerRuleSm,
+            ::RuleC,
+            ::DeepHistory,
+        )
+            Hsm.transition!(sm, :RuleD)
+        end
+    )
+    @test_throws Hsm.HsmMacroError macroexpand(
+        @__MODULE__,
+        history_default_expr,
+    )
+
     conditional_initial = :(
         Hsm.@on_initial function (sm::HandlerRuleSm, ::RuleC)
             if sm.mode === :first

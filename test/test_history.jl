@@ -282,6 +282,70 @@ using AllocCheck
     ) === Hsm.EventHandled
     @test Hsm.current(declared) === :DeclaredLeaf
 
+    @hsmdef mutable struct MultipleHistoryOwnersSm end
+    @statedef MultipleHistoryOwnersSm :HistoryOwnerA
+    @statedef MultipleHistoryOwnersSm :HistoryA1 :HistoryOwnerA
+    @statedef MultipleHistoryOwnersSm :HistoryA2 :HistoryOwnerA
+    @statedef MultipleHistoryOwnersSm :HistoryOwnerB
+    @statedef MultipleHistoryOwnersSm :HistoryB1 :HistoryOwnerB
+    @statedef MultipleHistoryOwnersSm :HistoryB2 :HistoryOwnerB
+    @statedef MultipleHistoryOwnersSm :HistoryOutside
+    @historydef MultipleHistoryOwnersSm :HistoryOwnerA
+    @historydef MultipleHistoryOwnersSm :HistoryOwnerB
+
+    @on_initial function (sm::MultipleHistoryOwnersSm, ::Root)
+        return Hsm.transition!(sm, :HistoryOwnerA)
+    end
+
+    @on_initial function (sm::MultipleHistoryOwnersSm, ::HistoryOwnerA)
+        return Hsm.transition!(sm, :HistoryA1)
+    end
+
+    @on_initial function (sm::MultipleHistoryOwnersSm, ::HistoryOwnerB)
+        return Hsm.transition!(sm, :HistoryB1)
+    end
+
+    @on_event function (sm::MultipleHistoryOwnersSm, ::HistoryA1, ::AdvanceA, arg)
+        return Hsm.transition!(sm, :HistoryA2)
+    end
+
+    @on_event function (sm::MultipleHistoryOwnersSm, ::HistoryOwnerA, ::EnterB, arg)
+        return Hsm.transition!(sm, :HistoryOwnerB)
+    end
+
+    @on_event function (sm::MultipleHistoryOwnersSm, ::HistoryB1, ::AdvanceB, arg)
+        return Hsm.transition!(sm, :HistoryB2)
+    end
+
+    @on_event function (sm::MultipleHistoryOwnersSm, ::HistoryOwnerB, ::LeaveB, arg)
+        return Hsm.transition!(sm, :HistoryOutside)
+    end
+
+    @on_event function (sm::MultipleHistoryOwnersSm, ::HistoryOwnerA, ::LeaveA, arg)
+        return Hsm.transition!(sm, :HistoryOutside)
+    end
+
+    @on_event function (sm::MultipleHistoryOwnersSm, ::HistoryOutside, ::RecallA, arg)
+        return Hsm.transition_history!(sm, :HistoryOwnerA, Hsm.DeepHistory())
+    end
+
+    @on_event function (sm::MultipleHistoryOwnersSm, ::HistoryOutside, ::RecallB, arg)
+        return Hsm.transition_history!(sm, :HistoryOwnerB, Hsm.DeepHistory())
+    end
+
+    multiple = MultipleHistoryOwnersSm()
+    @test length(Hsm._history_storage(multiple)) == 2
+    Hsm.dispatch!(multiple, :AdvanceA)
+    Hsm.dispatch!(multiple, :EnterB)
+    Hsm.dispatch!(multiple, :AdvanceB)
+    Hsm.dispatch!(multiple, :LeaveB)
+
+    @test Hsm.dispatch!(multiple, :RecallA) === Hsm.EventHandled
+    @test Hsm.current(multiple) === :HistoryA2
+    Hsm.dispatch!(multiple, :LeaveA)
+    @test Hsm.dispatch!(multiple, :RecallB) === Hsm.EventHandled
+    @test Hsm.current(multiple) === :HistoryB2
+
     @hsmdef mutable struct HistoryPerfSm end
 
     @statedef HistoryPerfSm :PerfComposite

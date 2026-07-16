@@ -3,9 +3,6 @@ using Hsm
 using ValSplit
 
 @testset "Core functionality" begin
-    # Test that the Root constant is defined
-    @test :Root === :Root
-
     # Test the EventHandled and EventNotHandled enum values
     @test Hsm.EventHandled isa Hsm.EventReturn
     @test Hsm.EventNotHandled isa Hsm.EventReturn

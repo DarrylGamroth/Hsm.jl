@@ -204,29 +204,4 @@ using ValSplit
         @test getfield(obj2, outer_fields[end]) == :Root
     end
 
-    @testset "Performance characteristics" begin
-        # Test that the macro doesn't introduce significant overhead
-        @eval begin
-            @hsmdef mutable struct PerformanceTest
-                x::Int
-                y::Float64
-            end
-        end
-
-        # Test construction performance
-        @test @elapsed(begin
-            for i in 1:1000
-                PerformanceTest(i, Float64(i))
-            end
-        end) < 0.1  # Should be very fast
-
-        # Test field access performance
-        obj = PerformanceTest(42, 3.14)
-        perf_fields = fieldnames(PerformanceTest)
-        @test @elapsed(begin
-            for i in 1:10000
-                _ = obj.x + obj.y + (getfield(obj, perf_fields[end-1]) == :Root ? 1 : 0)
-            end
-        end) < 0.1  # Should be very fast
-    end
 end

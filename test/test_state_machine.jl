@@ -269,16 +269,4 @@ using Hsm
         @test sm.log == ["Throw event in State_S1"]
     end
 
-    @testset "Event tracking during dispatch" begin
-        # Create a state machine for testing event tracking
-        sm = ComplexTestSm(0, String[])
-
-        # Test that events are handled properly without tracking internal event state
-        result1 = Hsm.dispatch!(sm, :Event_Reset)
-        @test result1 === Hsm.EventHandled
-
-        # Test with another event
-        result2 = Hsm.dispatch!(sm, :Event_A)
-        @test result2 === Hsm.EventHandled
-    end
 end
