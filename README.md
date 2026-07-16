@@ -549,71 +549,32 @@ Benefits of abstract state machines:
 
 ### Precompiling a Downstream Machine
 
-State and event specialization is generated for the concrete machine defined
-by your package. If first-use latency matters, add a deterministic
-`PrecompileTools` workload after all `@statedef` and handler declarations:
+Hsm specializes dispatch and transition paths for each concrete state machine.
+If first-use latency matters, a downstream package can add a deterministic
+`PrecompileTools` workload after declaring all states and handlers:
 
 ```julia
 using PrecompileTools
 
 @setup_workload begin
     @compile_workload begin
-        sm = Machine()
+        sm = MyMachine()
         Hsm.dispatch!(sm, :RepresentativeEvent, nothing)
     end
 end
 ```
 
-Cover representative argument types and transition paths, including history
-paths when used. Keep this workload in the downstream package: Hsm.jl cannot
-know its states or events in advance, and broad automatic workloads would
-increase precompile time and cache size without compiling the relevant graph.
-The workload must appear after the machine's states and handlers are declared.
-For an application image or sysimage, exercise the same workload while building
-the image. Precompiling one event does not compile unrelated event argument
-types or transition paths.
+Replace the placeholders with representative event sequences and argument
+types used by the application. Include history, choice, completion, or
+termination paths only when the machine uses them. Keep workloads bounded and
+deterministic; precompiling one event signature does not compile unrelated
+argument types or transition paths.
 
-Static edge specialization deliberately trades more compilation and a modest
-amount of native code for lower warmed transition latency. The cost grows with
-the number of reachable edge/current-state combinations, so downstream
-precompile coverage is especially valuable for larger or deeply hierarchical
-machines.
-
-A July 2026 merge audit measured this tradeoff on Julia 1.12.6, Linux x86-64,
-one Julia thread pinned to CPU 2, an AMD Ryzen 7 6800H,
-`JULIA_CPU_TARGET` unset, and fresh `--startup-file=no` processes. Five
-sequential processes were used for the maintained eight-state fixture using concrete
-`dispatch!(::CompileLatencySm, ::Symbol, ::Nothing)` calls. The median
-first cycle increased from 1.064 seconds on Hsm.jl 0.1.7 to 2.151 seconds with
-static edges. After warmup, the median five-dispatch cycle decreased from 387
-to 283 nanoseconds across 100,000 iterations. The Hsm package image grew from
-64,803 to 172,130 bytes, while the five-process median warm-cache `using Hsm` time was
-effectively unchanged (0.144 versus 0.146 seconds). The separate allocation
-fixtures remained at zero warmed bytes. These fixture-specific medians are
-evidence of the tradeoff, not performance guarantees for arbitrary state
-graphs. Run the maintained fixture with:
-
-```sh
-julia --startup-file=no --project=. benchmark/compile_latency.jl
-```
-
-`@hsmdef` also stores six private runtime values: history storage, transition
-phase, lifecycle, pending completion, current State, and transition source.
-The lifecycle and pending-completion fields are the per-instance memory cost of
-FinalState, completion, and terminate support.
-
-AllocCheck 0.2.6 reports a potential Windows allocation for the exception frame
-used by `dispatch!`'s required `try`/`finally`, while warmed runtime measurements
-remain at zero bytes. CI retains the exception-safe source restoration and
-treats this as an acknowledged Windows/static-analysis limitation.
-
-For nested initial transitions reached during history restoration, AllocCheck
-0.2 also conservatively reports generated recursive calls as potential dynamic
-dispatch on Julia 1.10 and 1.12. Optimized compiler output for the valid path
-contains direct specialized calls; the test suite separately enforces concrete
-return inference, zero warmed bytes, and the absence of static allocation or
-allocating-runtime-call sites. Exception construction is outside the
-steady-state contract.
+This workload belongs in the downstream package because Hsm cannot know its
+state graph in advance. For an application image or sysimage, exercise the same
+representative workload while building the image. Broader workloads can reduce
+first-use latency but increase precompile time and cache size, so measure that
+tradeoff for the application.
 
 ## Error Handling
 
