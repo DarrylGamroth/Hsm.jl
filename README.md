@@ -22,6 +22,7 @@ Hsm.jl provides a framework for implementing hierarchical state machines (HSMs) 
 - **Static transition edges**: Handler targets are validated and specialized at macro expansion time
 - **UML history support**: Explicit shallow and deep history transitions for composite states
 - **Static UML control vertices**: Choice, FinalState/completion, and terminate support without changing the `Symbol` API
+- **Dependency-free diagrams**: Build a static machine model and emit PlantUML or Mermaid text without loading a renderer
 - **Run-to-completion enforcement**: Reentrant dispatch and transitions are rejected
 - **Clean macro-based syntax**: Simple macros for defining state machine behavior
 - **Automatic initialization**: State machines are auto-initialized when created
@@ -155,6 +156,60 @@ julia --startup-file=no --project=. example/pseudostates_example.jl
 The examples use only Hsm.jl and Julia standard libraries and are smoke-tested
 on the minimum and current supported Julia releases.
 
+## Static Diagrams
+
+Hsm.jl can describe the statically registered portion of a machine without
+constructing or executing it:
+
+```julia
+model = Hsm.diagram_model(LightSwitch)
+
+plantuml = Hsm.diagram(model; format=:plantuml)
+mermaid = Hsm.diagram(model; format=:mermaid)
+
+write("LightSwitch.puml", plantuml)
+write("LightSwitch.mmd", mermaid)
+```
+
+Both serializers use only Julia `Base`. Hsm.jl does not load a rendering
+library or invoke PlantUML, Mermaid, Graphviz, or another external executable.
+The returned text can be rendered by external tooling; Mermaid files and
+`mermaid` Markdown fences are also rendered directly by GitHub and compatible
+VS Code extensions.
+
+PlantUML is the semantically richer output and represents composite States,
+choice, shallow/deep history, FinalState, initial, completion, local, external,
+and history edges. Terminate remains a standard Pseudostate in the
+format-neutral model; because PlantUML and Mermaid have no native terminate
+notation, both serializers use an explicitly labeled node. Mermaid retains
+every statically registered edge and emits comments describing its other
+notation adaptations for history, FinalState, and transitions crossing
+composite boundaries.
+
+Diagram discovery follows the same scope-aware handler rewrite used for static
+Transition execution. It includes every literal ordinary, history, and choice
+target selected through Hsm handler macros, including inherited abstract-family
+declarations. It deliberately does not interpret arbitrary Julia guard or
+effect bodies. Choice guards are labeled `guard 1`, `guard 2`, and `else`, and
+effects are shown generically as `effect`.
+
+A handler without a `transition!` call is also omitted: arbitrary Julia code
+cannot be classified safely as an internal Transition rather than an
+`EventNotHandled` propagation path. Manually implemented hierarchy or
+Transition methods that bypass Hsm's registration macros are likewise outside
+the discoverable model.
+
+Serializer compatibility is checked separately from the dependency-free Julia
+unit tests:
+
+| Format | Static/unit evidence | GitHub CI renderer |
+| --- | --- | --- |
+| PlantUML | `test/test_diagrams.jl` | `ghcr.io/plantuml/plantuml:1.2026.6` |
+| Mermaid | `test/test_diagrams.jl` | `ghcr.io/mermaid-js/mermaid-cli/mermaid-cli:11.16.0` |
+
+Each CI matrix entry generates the shared full-feature fixture and requires its
+containerized renderer to produce a non-empty SVG document.
+
 ## Advanced Features
 
 - Entry and exit actions for states
@@ -175,7 +230,21 @@ on the minimum and current supported Julia releases.
 
 ## Behavior Notes
 
-- Self transitions are treated as external transitions (exit/entry actions run).
+- Transition kind is derived from the handler outcome and source/target
+  topology; there is no separate transition-kind argument.
+- An event handler that performs its effect and returns `EventHandled` without
+  calling `transition!` represents an internal Transition. No State is exited
+  or entered.
+- A Transition from a composite source to one of its descendants is local.
+  Active descendants below the source are exited, but the source composite is
+  not exited and re-entered. Hsm.jl does not currently provide a way to request
+  an external Transition for that same source/target topology.
+- A source-to-itself Transition is external, so its exit and entry Behaviors
+  run.
+- `current` and `source` are read-only public queries. The qualified
+  `Hsm.current!` and `Hsm.source!` functions remain available only as internal
+  extension hooks for generated and legacy manually implemented machines; they
+  are not exported and application code must not mutate execution state.
 - `trace_transition_end` reports the direct transition target; nested initial transitions may enter deeper states.
 - A literal transition target inside a concrete-state handler, such as
   `Hsm.transition!(sm, :Running)`, uses a statically specialized entry/exit

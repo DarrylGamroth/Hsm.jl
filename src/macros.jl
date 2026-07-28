@@ -274,12 +274,35 @@ function _history_kind_type_expression(expr)
     return nothing
 end
 
+struct HandlerDiagramEdge
+    source::Symbol
+    source_kind::Symbol
+    target::Symbol
+    target_kind::Symbol
+    trigger_kind::Symbol
+    trigger::Symbol
+    owner::Symbol
+    effect::Symbol
+end
+
 mutable struct HandlerTransitionState
     initial_transition_count::Int
     history_owners::Set{Symbol}
+    diagram_edges::Vector{HandlerDiagramEdge}
+    handler_kind::Symbol
+    trigger::Symbol
+    choice_count::Int
 end
 
-HandlerTransitionState() = HandlerTransitionState(0, Set{Symbol}())
+HandlerTransitionState(handler_kind::Symbol=:event, trigger::Symbol=:unknown) =
+    HandlerTransitionState(
+        0,
+        Set{Symbol}(),
+        HandlerDiagramEdge[],
+        handler_kind,
+        trigger,
+        0,
+    )
 
 function _transition_macro_error(error_prefix, message)
     throw(HsmMacroError(format_error_message(error_prefix, message)))
@@ -383,6 +406,28 @@ function _rewrite_direct_transition(
         )
         state.initial_transition_count += 1
     end
+
+    target_kind = if transition_kind === :transition
+        :state
+    elseif _history_kind_symbol(call.args[kind_index]) === :shallow
+        :shallow_history
+    else
+        :deep_history
+    end
+    has_effect = do_body !== nothing || action !== nothing
+    push!(
+        state.diagram_edges,
+        HandlerDiagramEdge(
+            source_state,
+            :state,
+            target,
+            target_kind,
+            state.handler_kind,
+            state.trigger,
+            transition_kind === :history ? target : :Root,
+            has_effect ? :effect : :none,
+        ),
+    )
 
     internal_name = if handler_kind === :initial
         transition_kind === :transition ? :_initial_transition_from! :
@@ -696,6 +741,59 @@ function _rewrite_choice_macro(
         [target for (_, target, _) in guarded]...,
         fallback_target,
     ]))
+    state.choice_count += 1
+    choice_id = Symbol(
+        "__hsm_choice_",
+        source_state,
+        "_",
+        state.handler_kind,
+        "_",
+        state.trigger,
+        "_",
+        state.choice_count,
+    )
+    incoming_has_effect = !isempty(_without_line_nodes(incoming_effect))
+    push!(
+        state.diagram_edges,
+        HandlerDiagramEdge(
+            source_state,
+            :state,
+            choice_id,
+            :choice,
+            state.handler_kind,
+            state.trigger,
+            owner,
+            incoming_has_effect ? :effect : :none,
+        ),
+    )
+    for (index, (_, target, effect)) in pairs(guarded)
+        push!(
+            state.diagram_edges,
+            HandlerDiagramEdge(
+                choice_id,
+                :choice,
+                target,
+                :state,
+                :guard,
+                Symbol(:guard_, index),
+                owner,
+                isempty(_without_line_nodes(effect)) ? :none : :effect,
+            ),
+        )
+    end
+    push!(
+        state.diagram_edges,
+        HandlerDiagramEdge(
+            choice_id,
+            :choice,
+            fallback_target,
+            :state,
+            :guard,
+            :else,
+            owner,
+            isempty(_without_line_nodes(fallback_effect)) ? :none : :effect,
+        ),
+    )
     targets_val = Expr(
         :call,
         Expr(:curly, GlobalRef(Base, :Val), QuoteNode(targets)),
@@ -830,10 +928,11 @@ function rewrite_handler_transitions(
     is_any_state,
     handler_kind::Symbol,
     error_prefix,
+    trigger::Symbol=:none,
 )
     source_state = is_any_state ? nothing : static_state_parameter(state_arg)
     assigned_names = _scope_assignments!(Set{Symbol}(), full_body)
-    state = HandlerTransitionState()
+    state = HandlerTransitionState(handler_kind, trigger)
     rewritten = _rewrite_handler_expr(
         full_body,
         smarg,
@@ -850,7 +949,7 @@ function rewrite_handler_transitions(
             "an initial Pseudostate may have at most one outgoing Transition",
         )
     end
-    return rewritten, state.history_owners
+    return rewritten, state.history_owners, state.diagram_edges
 end
 
 
@@ -865,6 +964,39 @@ function generate_history_owner_registrations(smtype, history_owners)
             @inline Hsm._history_owner_edge(
                 ::$registration_type,
                 ::Val{$owner_node},
+                ::Val{$token_node},
+            ) = nothing
+        end)
+    end
+    return registrations
+end
+
+function generate_diagram_edge_registrations(smtype, diagram_edges)
+    registrations = Expr(:block)
+    smtype === :Any && return registrations
+    registration_type = smtype isa Expr && smtype.head == :curly ?
+                        smtype.args[1] : smtype
+    for edge in diagram_edges
+        source_node = QuoteNode(edge.source)
+        source_kind_node = QuoteNode(edge.source_kind)
+        target_node = QuoteNode(edge.target)
+        target_kind_node = QuoteNode(edge.target_kind)
+        trigger_kind_node = QuoteNode(edge.trigger_kind)
+        trigger_node = QuoteNode(edge.trigger)
+        owner_node = QuoteNode(edge.owner)
+        effect_node = QuoteNode(edge.effect)
+        token_node = QuoteNode(gensym("diagram_edge"))
+        push!(registrations.args, quote
+            @inline Hsm._diagram_transition_edge(
+                ::$registration_type,
+                ::Val{$source_node},
+                ::Val{$source_kind_node},
+                ::Val{$target_node},
+                ::Val{$target_kind_node},
+                ::Val{$trigger_kind_node},
+                ::Val{$trigger_node},
+                ::Val{$owner_node},
+                ::Val{$effect_node},
                 ::Val{$token_node},
             ) = nothing
         end)
@@ -1453,6 +1585,12 @@ macro on_history_default(def)
     qualified_kind === nothing && throw(ArgumentError(
         "$error_prefix: history kind must be ShallowHistory or DeepHistory",
     ))
+    kind_key = if kind_type === :ShallowHistory ||
+                  _qualified_function_name(kind_type, :ShallowHistory) !== nothing
+        :shallow
+    else
+        :deep
+    end
     normalized_kind_arg = if length(kind_arg.args) == 1
         Expr(:(::), qualified_kind)
     else
@@ -1483,7 +1621,31 @@ macro on_history_default(def)
     )
     isempty(where_clauses) ||
         (method_signature = Expr(:where, method_signature, where_clauses...))
-    return esc(Expr(:function, method_signature, body))
+    handler_impl = Expr(:function, method_signature, body)
+    behavior_registration = generate_state_behavior_registration(
+        smtype,
+        only(owner_args),
+        false,
+        :history_default,
+    )
+    registration_type = smtype isa Expr && smtype.head == :curly ?
+                        smtype.args[1] : smtype
+    owner_node = QuoteNode(owner_state)
+    kind_node = QuoteNode(kind_key)
+    token_node = QuoteNode(gensym("history_default_behavior"))
+    history_default_registration = smtype === :Any ? Expr(:block) : quote
+        @inline Hsm._history_default_behavior_edge(
+            ::$registration_type,
+            ::Val{$owner_node},
+            ::Val{$kind_node},
+            ::Val{$token_node},
+        ) = nothing
+    end
+    return esc(quote
+        $behavior_registration
+        $history_default_registration
+        Base.@__doc__ $handler_impl
+    end)
 end
 
 """
@@ -1554,19 +1716,23 @@ macro on_event(def)
 
     # Construct the full function body with any injected parameter transformations
     full_body = isempty(injected) ? body : Expr(:block, injected..., body)
-    full_body, history_owners = rewrite_handler_transitions(
+    event_trigger = is_any_event ? :* : static_state_parameter(new_args[3])
+    full_body, history_owners, diagram_edges = rewrite_handler_transitions(
         full_body,
         smarg,
         new_args[2],
         is_any_state,
         :event,
         error_prefix,
+        event_trigger,
     )
 
     # Generate the final function using proper Expr construction for better macro hygiene
     # This ensures correct handling of variables from the caller's context
     handler_impl = generate_event_handler_impl(smarg, smtype, new_args, full_body, is_any_event, event_name, is_any_state, state_name, method_where_clause)
     history_registrations = generate_history_owner_registrations(smtype, history_owners)
+    diagram_registrations =
+        generate_diagram_edge_registrations(smtype, diagram_edges)
     behavior_registration = generate_state_behavior_registration(
         smtype,
         new_args[2],
@@ -1576,6 +1742,7 @@ macro on_event(def)
 
     return esc(quote
         $history_registrations
+        $diagram_registrations
         $behavior_registration
         Base.@__doc__ $handler_impl
     end)
@@ -1628,7 +1795,7 @@ macro on_initial(def)
 
     # Construct the full function body with any injected parameter transformations
     full_body = isempty(injected) ? body : Expr(:block, injected..., body)
-    full_body, history_owners = rewrite_handler_transitions(
+    full_body, history_owners, diagram_edges = rewrite_handler_transitions(
         full_body,
         smarg,
         new_args[2],
@@ -1650,6 +1817,8 @@ macro on_initial(def)
         method_where_clause,
     )
     history_registrations = generate_history_owner_registrations(smtype, history_owners)
+    diagram_registrations =
+        generate_diagram_edge_registrations(smtype, diagram_edges)
     behavior_registration = generate_state_behavior_registration(
         smtype,
         new_args[2],
@@ -1659,6 +1828,7 @@ macro on_initial(def)
 
     return esc(quote
         $history_registrations
+        $diagram_registrations
         $behavior_registration
         Base.@__doc__ $handler_impl
     end)
@@ -1690,7 +1860,7 @@ macro on_completion(def)
         "$error_prefix: completion Transitions require a concrete source State",
     ))
     full_body = isempty(injected) ? body : Expr(:block, injected..., body)
-    full_body, history_owners = rewrite_handler_transitions(
+    full_body, history_owners, diagram_edges = rewrite_handler_transitions(
         full_body,
         smarg,
         new_args[2],
@@ -1718,6 +1888,8 @@ macro on_completion(def)
         smtype,
         history_owners,
     )
+    diagram_registrations =
+        generate_diagram_edge_registrations(smtype, diagram_edges)
     behavior_registration = generate_state_behavior_registration(
         smtype,
         new_args[2],
@@ -1727,6 +1899,7 @@ macro on_completion(def)
 
     return esc(quote
         $history_registrations
+        $diagram_registrations
         $behavior_registration
         @inline Hsm._completion_state_edge(
             ::$registration_type,
@@ -1787,13 +1960,16 @@ macro on_entry(def)
 
     # Construct the full function body with any injected parameter transformations
     full_body = isempty(injected) ? body : Expr(:block, injected..., body)
-    full_body, history_owners = rewrite_handler_transitions(
+    full_body, history_owners, diagram_edges = rewrite_handler_transitions(
         full_body,
         smarg,
         new_args[2],
         is_any_state,
         :entry,
         error_prefix,
+    )
+    isempty(diagram_edges) || error(
+        "$error_prefix: internal error: entry Behavior registered a Transition edge",
     )
 
     # Use helper function to generate the handler implementation
@@ -1880,13 +2056,16 @@ macro on_exit(def)
 
     # Construct the full function body with any injected parameter transformations
     full_body = isempty(injected) ? body : Expr(:block, injected..., body)
-    full_body, history_owners = rewrite_handler_transitions(
+    full_body, history_owners, diagram_edges = rewrite_handler_transitions(
         full_body,
         smarg,
         new_args[2],
         is_any_state,
         :exit,
         error_prefix,
+    )
+    isempty(diagram_edges) || error(
+        "$error_prefix: internal error: exit Behavior registered a Transition edge",
     )
 
     # Use helper function to generate the handler implementation

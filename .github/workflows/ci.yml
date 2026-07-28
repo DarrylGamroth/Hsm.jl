@@ -78,3 +78,56 @@ jobs:
           files: lcov.info
           fail_ci_if_error: false
           use_oidc: true
+
+  diagram-renderer:
+    name: Diagram renderer - ${{ matrix.renderer }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - renderer: PlantUML
+            format: plantuml
+            input: machine.puml
+            image: ghcr.io/plantuml/plantuml:1.2026.6
+          - renderer: Mermaid
+            format: mermaid
+            input: machine.mmd
+            image: ghcr.io/mermaid-js/mermaid-cli/mermaid-cli:11.16.0
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+          arch: x64
+      - uses: julia-actions/cache@v3
+      - uses: julia-actions/julia-buildpkg@v1
+      - name: Generate ${{ matrix.renderer }} source
+        run: >-
+          julia --project=. test/generate_diagram_fixture.jl
+          "${{ matrix.format }}"
+          "$RUNNER_TEMP/hsm-diagrams/${{ matrix.input }}"
+      - name: Render with PlantUML
+        if: matrix.format == 'plantuml'
+        run: |
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --volume "$RUNNER_TEMP/hsm-diagrams:/data" \
+            "${{ matrix.image }}" \
+            -tsvg /data/machine.puml
+          test -s "$RUNNER_TEMP/hsm-diagrams/machine.svg"
+          grep -q '<svg' "$RUNNER_TEMP/hsm-diagrams/machine.svg"
+      - name: Render with Mermaid
+        if: matrix.format == 'mermaid'
+        run: |
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --volume "$RUNNER_TEMP/hsm-diagrams:/data" \
+            "${{ matrix.image }}" \
+            -i /data/machine.mmd \
+            -o /data/machine-mermaid.svg
+          test -s "$RUNNER_TEMP/hsm-diagrams/machine-mermaid.svg"
+          grep -q '<svg' "$RUNNER_TEMP/hsm-diagrams/machine-mermaid.svg"
