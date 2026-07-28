@@ -3,6 +3,15 @@ using Hsm
 using ValSplit
 
 @testset "Core functionality" begin
+    # Execution state is publicly queryable, but its mutation hooks must remain
+    # qualified implementation details.
+    @test :current in names(Hsm)
+    @test :source in names(Hsm)
+    @test :current! ∉ names(Hsm)
+    @test :source! ∉ names(Hsm)
+    @test isdefined(Hsm, :current!)
+    @test isdefined(Hsm, :source!)
+
     # Test the EventHandled and EventNotHandled enum values
     @test Hsm.EventHandled isa Hsm.EventReturn
     @test Hsm.EventNotHandled isa Hsm.EventReturn

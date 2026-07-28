@@ -168,13 +168,16 @@ using Hsm
         sm = ComplexTestSm(0, String[])
         empty!(sm.log)  # Clear the log
 
-        # Test event that causes transition
+        # State_S1 handles the event while State_S11 is active and targets its
+        # other child. This is a local Transition: State_S1 remains active.
         Hsm.dispatch!(sm, :Event_A)
         @test Hsm.current(sm) === :State_S12
         @test Hsm.source(sm) === :State_S12
-        @test "Event A in State_S1" in sm.log
-        @test "Exited State_S11" in sm.log
-        @test "Entered State_S12" in sm.log
+        @test sm.log == [
+            "Event A in State_S1",
+            "Exited State_S11",
+            "Entered State_S12",
+        ]
 
         # Test event that propagates up the hierarchy
         empty!(sm.log)

@@ -20,6 +20,7 @@ using ValSplit
     include("test_examples.jl")
     include("test_super_macro.jl")
     include("test_tracing.jl")
+    include("test_diagrams.jl")
     include("test_static_transitions.jl")
     include("test_handler_rules.jl")
     include("test_history.jl")

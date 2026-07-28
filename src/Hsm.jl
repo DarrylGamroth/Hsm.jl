@@ -7,11 +7,13 @@ include("macros.jl")
 
 export EventHandled, EventNotHandled
 export HistoryKind, ShallowHistory, DeepHistory
-export current, current!, source, source!, ancestor
+export current, source, ancestor
 export isrunning, iscomplete, isterminated
 export on_initial!, on_entry!, on_exit!, on_event!, on_completion!
 export on_history_default!
 export transition!, transition_history!, dispatch!
+export DiagramModel, DiagramState, DiagramPseudostate, DiagramTransition
+export diagram_model, diagram
 export @on_event, @on_initial, @on_entry, @on_exit, @on_completion
 export @on_history_default
 export @choice, @hsmdef, @abstracthsmdef, @statedef, @finaldef, @terminatedef
@@ -69,7 +71,13 @@ function current end
 """
     current!(sm, state::Symbol)
 
-Set current state of state machine `sm` to `state`.
+Internal mutation hook used by Hsm's transition machinery to set the active
+state. This function is intentionally not exported. Application code must not
+call it because doing so bypasses exit, effect, entry, history, completion, and
+run-to-completion semantics.
+
+Manual state-machine implementations must define this hook as a qualified Hsm
+method:
 
 # Implementation Example
 ```julia
@@ -93,7 +101,13 @@ function source end
 """
     source!(sm, state::Symbol)
 
-Set source state of state machine `sm` to `state`.
+Internal mutation hook used by Hsm's dispatch and transition machinery to set
+the dispatch-local transition source. This function is intentionally not
+exported. Application code must not call it because doing so can corrupt
+ancestor dispatch and transition-path selection.
+
+Manual state-machine implementations must define this hook as a qualified Hsm
+method:
 
 # Implementation Example
 ```julia
@@ -689,6 +703,8 @@ function _completion_state_edge end
 function _state_behavior_edge end
 function _history_owner_edge end
 function _history_default_edge end
+function _history_default_behavior_edge end
+function _diagram_transition_edge end
 @inline _history_storage(@nospecialize(sm)) = nothing
 @inline _history_storage!(@nospecialize(sm), storage::Vector{Symbol}) = storage
 
@@ -770,6 +786,33 @@ end
         Tuple{SM,Val,Val,Val,Val},
         (2, 3, 4),
         Tuple{Symbol,Symbol,Symbol},
+    )
+end
+
+@inline function _registered_history_default_behaviors(::Type{SM}) where {SM}
+    return ValSplit.valarg_params(
+        _history_default_behavior_edge,
+        Tuple{SM,Val,Val,Val},
+        (2, 3),
+        Tuple{Symbol,Symbol},
+    )
+end
+
+@inline function _registered_diagram_edges(::Type{SM}) where {SM}
+    return ValSplit.valarg_params(
+        _diagram_transition_edge,
+        Tuple{SM,Val,Val,Val,Val,Val,Val,Val,Val,Val},
+        (2, 3, 4, 5, 6, 7, 8, 9),
+        Tuple{
+            Symbol,
+            Symbol,
+            Symbol,
+            Symbol,
+            Symbol,
+            Symbol,
+            Symbol,
+            Symbol,
+        },
     )
 end
 
@@ -2538,6 +2581,14 @@ The `action` function will be called, if specified, during the transition when t
     exited before entering the target state. This returns [`EventHandled`](@ref) and throws if `on_initial!`
     returns anything else.
 
+Transition kind is derived from the handler outcome and source/target topology.
+When a composite source targets one of its descendants, the Transition is local:
+active descendants below the source are exited, but the source itself is not
+exited and re-entered. A source-to-itself Transition is external, so its exit
+and entry Behaviors run. To handle an event as an internal Transition, perform
+its effect in the event handler and return [`EventHandled`](@ref) without
+calling `transition!`.
+
 Literal targets inside concrete-state handler macros use a statically specialized
 transition path. Handler macros reject computed targets; direct calls made outside
 those macros retain the dynamic `Symbol` path.
@@ -2720,5 +2771,7 @@ function dispatch!(sm, event::Symbol, arg=nothing)
     _drain_completion_events!(sm)
     return dispatch_result
 end
+
+include("diagrams.jl")
 
 end # module Hsm
