@@ -84,6 +84,35 @@ using ValSplit
         @test getfield(obj3, single_vector_fields[end]) == :Root
     end
 
+    @testset "Const user fields" begin
+        @hsmdef mutable struct ConstFieldStruct
+            const session::UInt64
+            payload::Int
+        end
+
+        obj = @inferred ConstFieldStruct(UInt64(1), 0)
+        @test obj.session == UInt64(1)
+        @test obj.payload == 0
+        @test Hsm.current(obj) == :Root
+        @test Hsm.source(obj) == :Root
+        @test_throws ErrorException setproperty!(obj, :session, UInt64(2))
+
+        obj.payload = 1
+        @test obj.payload == 1
+
+        @hsmdef Base.@kwdef mutable struct ConstKwFieldStruct
+            const session::UInt64 = UInt64(2)
+            payload::Int = 3
+        end
+
+        kwobj = @inferred ConstKwFieldStruct()
+        @test kwobj.session == UInt64(2)
+        @test kwobj.payload == 3
+        @test Hsm.current(kwobj) == :Root
+        @test Hsm.source(kwobj) == :Root
+        @test_throws ErrorException setproperty!(kwobj, :session, UInt64(4))
+    end
+
     @testset "Immutable struct support" begin
         @eval begin
             @hsmdef mutable struct ImmutableStruct
