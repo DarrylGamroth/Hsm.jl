@@ -571,6 +571,7 @@ This macro:
 - Adds hidden fields for state tracking (using `gensym` to avoid name collisions)
 - Generates field accessor methods (`current`, `source`, etc.)
 - Generates default HSM interface methods
+- Preserves `const` user fields and accepts them in the generated constructor
 
 ### `@abstracthsmdef` - State Machine Families
 

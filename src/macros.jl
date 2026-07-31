@@ -2198,7 +2198,9 @@ end
 The macro adds private history, transition-phase, lifecycle,
 pending-completion, current-state, and source-state fields. Its additional
 constructor accepts the original fields, initializes the generated runtime
-storage, and starts the machine at `:Root`.
+storage, and starts the machine at `:Root`. User fields declared `const` remain
+immutable after construction and are accepted by both direct and `Base.@kwdef`
+forms.
 """
 macro hsmdef(expr)
     # Generate unique field names to avoid collisions
@@ -2460,7 +2462,8 @@ function count_original_fields(struct_expr)
     field_count = 0
 
     for arg in body.args
-        if arg isa Symbol || (arg isa Expr && (arg.head == :(::) || arg.head == :(=)))
+        if arg isa Symbol ||
+           (arg isa Expr && arg.head in (:(::), :(=), :const))
             field_count += 1
         end
     end
