@@ -8,4 +8,3 @@ Lowest Common Ancestor (LCA) |   13     13  0.1s
 Test Failed at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/allocations.jl:44
   Expression: bytes == 0
    Evaluated: 64 == 0
-

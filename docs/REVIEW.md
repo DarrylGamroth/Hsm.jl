@@ -396,7 +396,8 @@ Julia 1.13.3 was the latest stable patch at review time, confirmed against the
 The full suite passed all 837 tests on 1.13.3. All 15 functional/macro/diagram/
 documentation reproduction scripts failed their expected behavior assertions;
 the allocation script passed on this version. MAIN-010 has two scripts, so this
-is 16 scripts for 15 findings. Results are retained in [review/results](review/results).
+is 16 scripts for 15 findings. Results are retained in [review/results](review/results); stored log trailing
+whitespace is normalized without changing diagnostic content.
 The primary reran the fixtures in isolated child processes on 1.13.3.
 
 Historical CI is separate evidence: the
