@@ -23,12 +23,13 @@ its eight previously reported findings are excluded from the main findings.
 The transfer checksum manifest is retained in `review/extension-transfer.json`.
 
 The disposition is **13 confirmed defects, one accepted modeling improvement,
-and one documentation gap**, all
-unfixed. P1 denotes a supported configuration that violates the central
+and one documentation gap** at the reviewed source commit. The repair
+disposition is recorded below; the original observations remain baseline
+evidence. P1 denotes a supported configuration that violates the central
 allocation contract; P2 denotes a reproducible functional or validation defect;
 P3 denotes missing public help documentation. Confidence is high unless a
 specific verification limit is stated below. Test success establishes only the
-paths tested; it does not resolve the counterexamples in this report.
+paths tested; baseline suite success did not resolve these counterexamples.
 
 ## Findings
 
@@ -416,9 +417,9 @@ was added. No format-wide cleanup or production remediation was performed.
 
 ## Disposition and follow-up boundary
 
-The 13 defect findings are accepted and open; MAIN-012 is an accepted modeling
-improvement requiring a tooling contract decision, and MAIN-015 is an open
-documentation gap. Correctness repairs must make the associated fixture pass
+At review completion, the 13 defect findings were accepted and open; MAIN-012
+was an accepted modeling improvement requiring a tooling contract decision,
+and MAIN-015 was an open documentation gap. Correctness repairs must make the associated fixture pass
 on Julia 1.10 and current stable while retaining the existing ordering,
 allocation, and macro-hygiene checks. MAIN-011's oracle explicitly expects a
 clear macro-expansion rejection, matching its proposed fail-closed remedy;
@@ -471,3 +472,90 @@ Structured counts and uncovered-line lists are in
 [review/results/coverage-1.13.3.json](review/results/coverage-1.13.3.json);
 the instrumented suite output is in
 [review/results/coverage-tests-1.13.3.log](review/results/coverage-tests-1.13.3.log).
+
+
+## Repairs — 2026-10-26
+
+Repairs are isolated on branch `repair/main-review-findings` in
+`/home/dgamroth/workspaces/codex/Hsm.jl-main-repair`, based on review commit
+`9f49aed0adeccce33ada1c95d7f95ca1eea9d577`. The worktree was initially clean;
+the original `main` checkout and orthogonal-extension checkpoint are preserved.
+This section supersedes the original open dispositions above.
+
+| Finding | Disposition | Repair and regression evidence |
+|---|---|---|
+| MAIN-001 | Deferred at the user's direction | A brief Julia 1.10.12 check still observes 64 bytes / 2 allocations per warmed handled dispatch with resolved ValSplit 0.1.2. The minimum version and zero-byte assertions are unchanged. Current stable remains the validation priority. |
+| MAIN-002 | Repaired | Preserve enclosing completed-composite history when a nested FinalState clears its own Region; static, choice, dynamic exit, shallow and deep recall cases in `test_runtime_regressions.jl`. |
+| MAIN-003 | Repaired | Choice preserves its already active owner while still exiting active children; initial and event ordering oracles in `test_runtime_regressions.jl`. |
+| MAIN-004 | Repaired | Ancestor targets complete the Region and schedule its scoped completion event without default reentry; static/dynamic transitions, handled/unhandled completion, history interactions, lifecycle and source/phase assertions in `test_runtime_regressions.jl`. |
+| MAIN-005 | Repaired | Validate initial State and control-vertex target containment before effects or exits; ordinary, history, and choice cases in `test_runtime_regressions.jl`. |
+| MAIN-006/007 | Repaired | Account for every handler signature binding and preserve short-function scope boundaries; callback, callable-machine, nested-function and qualified-call oracles in `test_macro_regressions.jl`. |
+| MAIN-008 | Repaired | Generate private `@super` local names and qualify Base references; all four previous local-name collisions are exercised. |
+| MAIN-009 | Repaired | Explicit parameterized user-field constructors initialize runtime state; tests include keyword defaults, constraints, const fields and empty parameterized machines. |
+| MAIN-010 | Repaired | Preserve exact machine parameter constraints and `where` scope in metadata without changing registry tuple shapes; behavior, history, completion, default-history and diagram assertions distinguish applicable specializations. |
+| MAIN-011 | Repaired by rejection | Unsupported inner constructors, including macro wrappers, raise a clear macro-expansion error before accepting an unsafe definition. The constructor limitation is documented. |
+| MAIN-012 | Resolved by contract clarification | Diagrams retain registered inherited declarations, including overridden handlers. README, `DiagramModel` help and serialized comments explicitly identify this inventory. The test now checks that contract, rather than claiming an effective dispatch graph. |
+| MAIN-013 | Repaired | Assign generated control vertices identifiers distinct from all public State and terminate names; preserve incoming/outgoing identity and deterministic ordering in both serializers. |
+| MAIN-014 | Repaired | Add the family initial transition and remove Truck's nonexistent fuel access. `test_readme_examples.jl` extracts and executes the actual README block and checks both concrete machines and their data. |
+| MAIN-015 | Repaired | Attach help to both event return values and all three exported exceptions; documentation inventory and regression checks cover them. |
+
+The runtime representation keeps the existing fields: a completed composite
+with no active child is represented by that composite in `current`. Deep
+history can restore such an endpoint without running its initial handler;
+shallow history uses ordinary default activation. PSSM 8.5.3 clears history
+specifically for entry into a directly owned FinalState. Completion through an
+ancestor target therefore retains the last nonfinal child history. These
+choices and their observable API behavior are synchronized with `SEMANTICS.md`
+and the README.
+
+Baseline reproduction logs are preserved. The MAIN-012 reproduction's oracle
+was explicitly changed following the inventory decision, and MAIN-014 now
+executes the maintained README instead of a stale copied block. These are not
+claims that the original effective-graph assertion or broken README snapshot
+now passes unchanged.
+
+### Repair verification
+
+Linux x86_64, one Julia thread, Julia 1.13.3, resolved ValSplit 0.1.2
+(tree `e00dde2…`), AllocCheck 0.2.7:
+
+- `julia +1.13.3 --startup-file=no --project=. -e 'using Pkg; Pkg.test(; allow_reresolve=false)'`:
+  **1,187 / 1,187 passed** (837 existing assertions plus 350 new assertions).
+- `julia +1.13.3 --startup-file=no --project=. docs/review/reproduce.jl`:
+  **16 / 16 scripts passed**, with the two explicitly described oracle updates.
+- The new runtime regressions pass `@inferred`, zero-byte `@allocated`, and
+  zero-count `@allocations` checks for five exact concrete helper signatures.
+  The helpers exercise static/dynamic ancestor completion and shallow/static
+  deep/dynamic deep history. Each exact signature is warmed; construction and
+  state preparation occur outside each measured expression. Result-state
+  correctness is checked alongside allocation assertions.
+- Separate `AllocCheck.check_allocs(operation, (machine_type,))` checks on
+  those five helpers, using the existing test/developer dependencies, report
+  no allocation or other runtime-call sites. The two ancestor helpers have
+  no reported sites. Each history helper retains two conservative
+  `DynamicDispatch` sites through recursive generated initial-entry calls,
+  matching the limitation already documented by `test_history.jl`. These
+  reports are retained rather than represented as a clean static proof.
+  `ignore_throw=true` excludes exceptional paths; no aliasing assumptions
+  are used. Dynamic allocation evidence remains necessary.
+- A separate final runtime review found a newly introduced manual-interface
+  fallback regression. It was repaired, independently rerun, and added to the
+  regression suite before the final full run. No further actionable runtime
+  finding remained. The primary reviewed macro, diagram, documentation and
+  integration changes.
+- The brief Julia 1.10.12 allocation fixture still reports **64 bytes / two
+  allocations** with the resolved dependency. No extended compiler or
+  dependency investigation was performed after the user's priority change.
+- `git diff --check` passed. Original main remains clean at `bb00ed8`, and the
+  extension remains clean at `753d991`.
+
+Logs and concrete-signature metadata are retained in
+[repair-verification.json](review/results/repair-verification.json),
+[full-suite output](review/results/repair-tests-1.13.3.log),
+[reproduction output](review/results/repair-reproductions-1.13.3.log),
+[static allocation output](review/results/repair-alloccheck-1.13.3.log), and
+[Julia 1.10 allocation output](review/results/repair-allocations-1.10.12.log).
+The baseline coverage percentage above was not remeasured after remediation.
+No controlled latency, compilation-latency or code-size comparison is claimed;
+incidental timings in logs are not evidence of a speedup. Windows, macOS and
+external renderer containers were not rerun locally.

@@ -60,6 +60,9 @@ portion of an Hsm.jl machine.
 The model describes state hierarchy, UML control vertices, and every
 statically named ordinary, history, choice, initial, and completion edge found
 by Hsm handler macros. Arbitrary handler code is never executed or interpreted.
+This is an inventory of registered declarations: inherited edges remain
+visible when a concrete handler overrides them. It is not an exact model of
+the effective handler dispatch for every payload type.
 In particular, a handler without a `transition!` call cannot always be
 classified statically as an internal Transition rather than an unhandled-event
 path, so such handlers are not represented as edges.
@@ -102,28 +105,33 @@ function _diagram_registered_state(
 end
 
 function _diagram_add_pseudostate!(
-    pseudostates::Dict{Symbol,DiagramPseudostate},
+    pseudostates::Dict{Tuple{Symbol,Symbol,Symbol},DiagramPseudostate},
+    registered::Set{Symbol},
     name::Symbol,
     owner::Symbol,
     kind::Symbol,
 )
-    candidate = DiagramPseudostate(name, owner, kind)
-    existing = get(pseudostates, name, nothing)
-    if existing !== nothing &&
-       (existing.owner !== owner || existing.kind !== kind)
-        throw(HsmStateError(
-            "Diagram Pseudostate $name has conflicting registrations",
-        ))
+    key = (name, owner, kind)
+    existing = get(pseudostates, key, nothing)
+    existing === nothing || return existing.name
+    identifier = name
+    if kind !== :terminate
+        suffix = 0
+        while identifier in registered ||
+              any(vertex -> vertex.name === identifier, values(pseudostates))
+            suffix += 1
+            identifier = Symbol(name, "_", suffix)
+        end
     end
-    pseudostates[name] = candidate
-    return name
+    pseudostates[key] = DiagramPseudostate(identifier, owner, kind)
+    return identifier
 end
 
 function _diagram_raw_edge_transition(
     edge,
     parents::Dict{Symbol,Symbol},
     registered::Set{Symbol},
-    pseudostates::Dict{Symbol,DiagramPseudostate},
+    pseudostates::Dict{Tuple{Symbol,Symbol,Symbol},DiagramPseudostate},
 )
     source, source_kind, target, target_kind, trigger_kind, trigger, owner,
         effect = edge
@@ -131,6 +139,7 @@ function _diagram_raw_edge_transition(
     source_id = if source_kind === :choice
         _diagram_add_pseudostate!(
             pseudostates,
+            registered,
             source,
             owner,
             :choice,
@@ -146,6 +155,7 @@ function _diagram_raw_edge_transition(
     elseif target_kind === :choice
         _diagram_add_pseudostate!(
             pseudostates,
+            registered,
             target,
             owner,
             :choice,
@@ -158,6 +168,7 @@ function _diagram_raw_edge_transition(
         )
         _diagram_add_pseudostate!(
             pseudostates,
+            registered,
             _diagram_history_name(:shallow, owner),
             owner,
             :shallow_history,
@@ -166,6 +177,7 @@ function _diagram_raw_edge_transition(
         _diagram_registered_state(owner, registered, "Deep-history owner")
         _diagram_add_pseudostate!(
             pseudostates,
+            registered,
             _diagram_history_name(:deep, owner),
             owner,
             :deep_history,
@@ -177,6 +189,7 @@ function _diagram_raw_edge_transition(
     if trigger_kind === :initial
         initial = _diagram_add_pseudostate!(
             pseudostates,
+            registered,
             _diagram_pseudostate_name(:initial, source),
             source,
             :initial,
@@ -277,17 +290,18 @@ function diagram_model(machine::Type{SM}) where {SM}
     end
     sort!(states; by=state -> _diagram_state_sort_key(state, parents))
 
-    pseudostate_map = Dict{Symbol,DiagramPseudostate}()
-    for state in terminate_states
+    pseudostate_map = Dict{Tuple{Symbol,Symbol,Symbol},DiagramPseudostate}()
+    for state in sort!(collect(terminate_states); by=String)
         _diagram_add_pseudostate!(
             pseudostate_map,
+            registered,
             state,
             parents[state],
             :terminate,
         )
     end
     transitions = DiagramTransition[]
-    for edge in unique(_registered_diagram_edges(SM))
+    for edge in sort!(collect(unique(_registered_diagram_edges(SM))); by=edge -> map(String, edge))
         push!(
             transitions,
             _diagram_raw_edge_transition(
@@ -301,12 +315,15 @@ function diagram_model(machine::Type{SM}) where {SM}
 
     history_default_behaviors =
         Set{Tuple{Symbol,Symbol}}(_registered_history_default_behaviors(SM))
-    for (owner, history_kind, target) in
-        unique(_registered_history_defaults(SM))
+    for (owner, history_kind, target) in sort!(
+        collect(unique(_registered_history_defaults(SM)));
+        by=edge -> map(String, edge),
+    )
         _diagram_registered_state(owner, registered, "History owner")
         _diagram_registered_state(target, registered, "History default")
         history_name = _diagram_add_pseudostate!(
             pseudostate_map,
+            registered,
             _diagram_history_name(history_kind, owner),
             owner,
             history_kind === :shallow ? :shallow_history : :deep_history,
@@ -516,6 +533,7 @@ function _plantuml(io::IO, model::DiagramModel)
     println(io, "@startuml")
     println(io, "hide empty description")
     println(io, "title ", _diagram_machine_name(model))
+    println(io, "' Registration inventory includes inherited edges from overridden handlers.")
     println(
         io,
         "' Generated from statically registered Hsm.jl edges; handlers without",
@@ -651,6 +669,7 @@ function _mermaid(io::IO, model::DiagramModel)
 
     println(io, "stateDiagram-v2")
     println(io, "%% ", _diagram_machine_name(model))
+    println(io, "%% Registration inventory includes inherited edges from overridden handlers.")
     println(
         io,
         "%% Hsm.jl adaptation: Mermaid has no shallow/deep history notation;",

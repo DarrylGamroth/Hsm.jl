@@ -1,0 +1,10 @@
+ERROR: LoadError: There was an error during testing
+in expression starting at /home/dgamroth/workspaces/codex/Hsm.jl-main-repair/docs/review/reproductions/allocations.jl:44
+Test Summary:      | Pass  Total  Time
+Core functionality |   29     29  1.0s
+Test Summary:                | Pass  Total  Time
+Lowest Common Ancestor (LCA) |   13     13  0.1s
+(julia = v"1.10.12", platform = "x86_64-linux-gnu", threads = 1, signature = "dispatch!(::AllocationRepro.Machine, ::Symbol, ::Int64)", bytes = 64, allocations = 2, minimum_seconds = 7.0e-8, valsplit_path = "/home/dgamroth/.julia/packages/ValSplit/bAexl/src/ValSplit.jl")
+Test Failed at /home/dgamroth/workspaces/codex/Hsm.jl-main-repair/docs/review/reproductions/allocations.jl:55
+  Expression: bytes == 0
+   Evaluated: 64 == 0

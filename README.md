@@ -100,6 +100,10 @@ using Hsm
 @statedef VehicleController :Stopped
 @statedef VehicleController :Moving
 
+@on_initial function(sm::VehicleController, ::Root)
+    return Hsm.transition!(sm, :Stopped)
+end
+
 # Define shared event handlers
 @on_event function(sm::VehicleController, ::Stopped, ::Start, _)
     return Hsm.transition!(sm, :Moving)
@@ -125,7 +129,6 @@ end
 
 @on_event function(sm::Truck, ::Moving, ::Accelerate, amount::Float64)
     sm.speed += amount / (1 + sm.cargo / 1000)
-    sm.fuel -= amount * 0.2
     return Hsm.EventHandled
 end
 
@@ -189,7 +192,12 @@ composite boundaries.
 Diagram discovery follows the same scope-aware handler rewrite used for static
 Transition execution. It includes every literal ordinary, history, and choice
 target selected through Hsm handler macros, including inherited abstract-family
-declarations. It deliberately does not interpret arbitrary Julia guard or
+declarations. This is a registration inventory: edges from an overridden
+abstract-family handler remain visible alongside the concrete declaration.
+The result can therefore contain multiple registered initial targets and is
+not an exact executable UML model for the concrete machine. Runtime execution
+uses Julia's normal method selection, including payload-type specificity.
+Diagram generation deliberately does not interpret arbitrary Julia guard or
 effect bodies. Choice guards are labeled `guard 1`, `guard 2`, and `else`, and
 effects are shown generically as `effect`.
 
@@ -277,8 +285,8 @@ Literal owners used by handler macros are declared automatically. If history
 is reached only through direct API calls outside a handler, declare its owner
 explicitly with `@historydef Machine :Operating`.
 
-- `DeepHistory()` restores the former active leaf and enters the complete path
-  without replaying intermediate initial transitions.
+- `DeepHistory()` restores the former active path, including a completed
+  composite endpoint, without replaying intermediate initial transitions.
 - `ShallowHistory()` restores the former direct child, then follows that
   child's normal initial transition.
 - If the composite has no recorded history, its declared explicit default
@@ -353,6 +361,11 @@ end
 
 Entering a nested FinalState completes its owner and clears that Region's
 history. Entering a top-level FinalState completes the whole machine.
+Enclosing Regions retain history of a nested completed composite. A transition
+to an already active ancestor also completes the source Region, without
+reentering the ancestor or replaying its defaults. If its completion event is
+unhandled, `current(sm)` returns that active composite and subsequent events
+are handled there. This form of completion retains the last nonfinal history.
 Completion transitions run before another external event and may use ordinary
 static transitions, history, or `@choice`. FinalStates cannot own children or
 define State Behaviors.
@@ -572,6 +585,10 @@ This macro:
 - Generates field accessor methods (`current`, `source`, etc.)
 - Generates default HSM interface methods
 - Preserves `const` user fields and accepts them in the generated constructor
+
+Generated constructors initialize the runtime fields before activating the
+machine. Explicit parameterized constructors and `Base.@kwdef` are supported.
+Inner constructors are rejected because they can bypass that initialization.
 
 ### `@abstracthsmdef` - State Machine Families
 

@@ -1,0 +1,70 @@
+{
+  "date": "2026-10-26",
+  "branch": "repair/main-review-findings",
+  "review_base": "9f49aed0adeccce33ada1c95d7f95ca1eea9d577",
+  "julia": "1.13.3",
+  "platform": "x86_64-linux-gnu",
+  "threads": 1,
+  "full_suite": {
+    "passed": 1187,
+    "failed": 0,
+    "test_seconds": 92.5
+  },
+  "review_scripts": {
+    "passed": 16,
+    "failed": 0,
+    "oracle_changes": [
+      "MAIN-012 inventory contract",
+      "MAIN-014 execute maintained README block"
+    ]
+  },
+  "warmed_runtime_calls": {
+    "fixtures": "test/test_runtime_regressions.jl",
+    "signatures": [
+      "up!(::AncestorSm)",
+      "up_dynamic!(::AncestorSm)",
+      "shallow!(::HistorySm)",
+      "deep!(::HistorySm)",
+      "dynamic_deep!(::HistorySm)"
+    ],
+    "warmup": "Exact concrete operation and machine signature, then fresh prepared machine before each measured expression.",
+    "bytes_per_call": 0,
+    "allocations_per_call": 0,
+    "correctness": "Each call checks EventHandled and the expected resulting active configuration; return types checked with @inferred.",
+    "exceptions": "Not measured; construction, setup and user allocation are excluded."
+  },
+  "alloccheck": {
+    "version": "0.2.7",
+    "signatures": "Same five concrete helper signatures",
+    "ignore_throw": true,
+    "aliasing_assumptions": "None",
+    "allocation_sites": 0,
+    "other_runtime_call_sites": 0,
+    "dynamic_dispatch_sites_per_signature": [
+      0,
+      0,
+      2,
+      2,
+      2
+    ],
+    "limitation": "Conservative recursive generated-call dispatch reports remain on history paths; static analysis is separate from dynamic zero-allocation evidence."
+  },
+  "julia_1_10": {
+    "version": "1.10.12",
+    "signature": "dispatch!(::AllocationRepro.Machine, ::Symbol, ::Int64)",
+    "bytes": 64,
+    "allocations": 2,
+    "disposition": "Deferred at user direction; declared compatibility and allocation assertions retained."
+  },
+  "performance_limits": "No controlled latency, compilation-latency or code-size comparison was performed. Incidental timings in logs are not speedup claims.",
+  "source_sha256": {
+    "src/Hsm.jl": "0d2a6c901b7a2ee4a7478f6da00c7ed7dc7e165d98a9e088f768d4b4a9884f8f",
+    "src/diagrams.jl": "683d41fed243da4cae42e1afaec9ba903d750b997fde44c6ceaf87792aea8101",
+    "src/macros.jl": "37af64d1e91a48e4153f2ac8d0226cbe83092991f34571fc08303e83058ebd79",
+    "test/runtests.jl": "a57561e124381102d8b6f8e1990a4164222be21353a54c94041b83fe68bf220d",
+    "test/test_diagram_regressions.jl": "8bba1551d9157721319cd2925b1300948a9497769b2105e388a165b27df35b9b",
+    "test/test_macro_regressions.jl": "38ccabecbb1d9bc69e47f10987725f7472fb037f4c34f3ff4072bd0bf7891097",
+    "test/test_readme_examples.jl": "3c30d46ff15c7667b4d41bf15d8a225bec677daec580f5c08f322729b704a8ac",
+    "test/test_runtime_regressions.jl": "fb0cf2f9b0a24a3ba93f5eb5d6c14ac62ba5d55c56a0d875324838ec0f035062"
+  }
+}

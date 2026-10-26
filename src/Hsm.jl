@@ -32,6 +32,12 @@ Enumeration of the possible return values from [`on_event!`](@ref) function.
 """
 @enum EventReturn EventNotHandled EventHandled
 
+"""`EventNotHandled` tells dispatch to continue searching enclosing States."""
+EventNotHandled
+
+"""`EventHandled` tells dispatch that the event has been consumed."""
+EventHandled
+
 """
     HistoryKind
 
@@ -914,8 +920,22 @@ end
     owner::Val,
     current::Val{CURRENT},
 ) where {FINAL_STATES,CURRENT}
-    remembered = CURRENT in FINAL_STATES ? :Root : CURRENT
-    return :(_set_history!(sm, owner, $(QuoteNode(remembered))))
+    if CURRENT in FINAL_STATES
+        return quote
+            parent = _ancestor_val(sm, current)
+            remembered = parent === owner ? :Root : _val_parameter(parent)
+            _set_history!(sm, owner, remembered)
+        end
+    end
+    return quote
+        # A completed composite can be current after an ancestor target. Keep
+        # the non-final child path captured when its Region completed.
+        previous = _history_value(sm, owner)
+        remembered = previous !== :Root &&
+                     isancestorof(sm, $(QuoteNode(CURRENT)), previous) ?
+                     previous : $(QuoteNode(CURRENT))
+        _set_history!(sm, owner, remembered)
+    end
 end
 
 @inline function _run_entry_behavior!(sm, state::Symbol)
@@ -933,7 +953,14 @@ end
     owner::Symbol,
     active_leaf::Symbol,
 )
-    remembered = _is_final_state_symbol(sm, active_leaf) ? :Root : active_leaf
+    remembered = if _is_final_state_symbol(sm, active_leaf)
+        parent = ancestor(sm, active_leaf)
+        parent === owner ? :Root : parent
+    else
+        previous = _history_value_symbol(sm, owner)
+        previous !== :Root && isancestorof(sm, active_leaf, previous) ?
+            previous : active_leaf
+    end
     _set_history_symbol!(sm, owner, remembered)
     return nothing
 end
@@ -964,6 +991,64 @@ end
     else
         _schedule_completion!(sm, parent)
     end
+    return nothing
+end
+
+# An active composite with no active child represents its completed Region.
+# This also represents the endpoint of deep history below a completed Region.
+@inline function _complete_region!(sm, owner::Val{OWNER}) where {OWNER}
+    current!(sm, OWNER)
+    source!(sm, OWNER)
+    if OWNER === :Root
+        _pending_completion!(sm, nothing)
+        _lifecycle!(sm, _LIFECYCLE_COMPLETED)
+    else
+        _schedule_completion!(sm, owner)
+    end
+    return nothing
+end
+
+@inline function _complete_region!(sm::SM, owner::Symbol) where {SM}
+    # Unregistered manual hierarchies expose Symbols rather than static paths.
+    current!(sm, owner)
+    source!(sm, owner)
+    if owner in _registered_completion_states(SM)
+        _pending_completion!(sm, owner)
+    end
+    return nothing
+end
+
+@generated function _record_completion_history!(
+    ::Val{HISTORY_OWNERS},
+    sm,
+    active::Symbol,
+    owner::Symbol,
+) where {HISTORY_OWNERS}
+    isempty(HISTORY_OWNERS) && return :(nothing)
+    body = Expr(:block)
+    for state in HISTORY_OWNERS
+        push!(body.args, quote
+            if owner === $(QuoteNode(state)) || isancestorof(sm, $(QuoteNode(state)), owner)
+                _record_history_symbol!(sm, $(QuoteNode(state)), active)
+            end
+        end)
+    end
+    push!(body.args, :(nothing))
+    return body
+end
+
+@inline _activate_transition_target!(sm, target, ::Val{true}) =
+    _activate_target!(sm, target)
+
+@inline function _activate_transition_target!(
+    sm,
+    target::Val{TARGET},
+    ::Val{false},
+) where {TARGET}
+    current!(sm, TARGET)
+    source!(sm, TARGET)
+    _static_state_has_children(sm, target) ?
+        _complete_region!(sm, target) : _schedule_completion!(sm, target)
     return nothing
 end
 
@@ -1176,6 +1261,17 @@ end
 @inline _history_value(sm, owner::Val) =
     _history_value(_history_storage(sm), sm, owner)
 
+@generated function _history_value_symbol(
+    ::Val{OWNERS}, sm, owner::Symbol,
+) where {OWNERS}
+    return foldr(OWNERS; init=QuoteNode(:Root)) do state, next
+        :(owner === $(QuoteNode(state)) ? _history_value(sm, Val{$(QuoteNode(state))}()) : $next)
+    end
+end
+
+@inline _history_value_symbol(sm::SM, owner::Symbol) where {SM} =
+    _history_value_symbol(Val(_registered_history_owners(SM)), sm, owner)
+
 @inline function _set_history!(
     storage::Vector{Symbol},
     sm,
@@ -1303,8 +1399,17 @@ end
     action::F,
     sm,
     source_state::Val{SOURCE},
-    target::Val,
-) where {F<:Function,SOURCE}
+    target::Val{TARGET},
+) where {F<:Function,SOURCE,TARGET}
+    valid_target = if _static_state_registered(sm, source_state) &&
+                      _static_state_registered(sm, target)
+        SOURCE !== TARGET && _static_isancestor(sm, source_state, target)
+    else
+        SOURCE !== TARGET && isancestorof(sm, SOURCE, TARGET)
+    end
+    valid_target || throw(HsmStateError(
+        "Initial transition target $TARGET must be below its owner $SOURCE",
+    ))
     if !_static_state_registered(sm, source_state) ||
        !_static_state_registered(sm, target)
         return _transition_dynamic_from_handler!(
@@ -1347,10 +1452,29 @@ end
     owner::Val,
     kind::HistoryKind,
 ) where {F<:Function,SOURCE}
+    _validate_initial_owner(sm, source_state, owner)
     current(sm) === SOURCE || throw(HsmStateError(
         "Initial transition source $SOURCE is not the active state",
     ))
     return _transition_history_from!(action, sm, source_state, owner, kind)
+end
+
+@inline function _validate_initial_owner(
+    sm,
+    source::Val{SOURCE},
+    owner::Val{OWNER},
+) where {SOURCE,OWNER}
+    SOURCE === OWNER && return nothing
+    valid = if _static_state_registered(sm, source) &&
+               _static_state_registered(sm, owner)
+        _static_isancestor(sm, source, owner)
+    else
+        isancestorof(sm, SOURCE, OWNER)
+    end
+    valid || throw(HsmStateError(
+        "Initial control vertex owner $OWNER must be within initial source $SOURCE",
+    ))
+    return nothing
 end
 
 @inline function _transition_from!(sm, source_state::Val, target::Val)
@@ -1362,6 +1486,7 @@ end
     sm,
     source_state::Val{S},
     target::Val,
+    initialize::Val=Val(true),
 ) where {F<:Function,S}
     if !_static_state_registered(sm, source_state) ||
        !_static_state_registered(sm, target)
@@ -1369,12 +1494,15 @@ end
             action,
             sm,
             _val_parameter(target),
+            initialize,
         )
     end
 
     current_state = current(sm)
     if current_state === S
-        return _transition_static!(action, sm, source_state, source_state, target)
+        return _transition_static!(
+            action, sm, source_state, source_state, target, initialize,
+        )
     end
     if !_static_state_has_children(sm, source_state)
         throw(HsmStateError(
@@ -1387,6 +1515,7 @@ end
         current_state,
         source_state,
         target,
+        initialize,
     )
 end
 
@@ -1410,7 +1539,8 @@ end
     current_state::Symbol,
     source_state::S,
     target::T,
-) where {STATES,F<:Function,SM,S<:Val,T<:Val}
+    initialize::Val{INITIALIZE}=Val(true),
+) where {STATES,F<:Function,SM,S<:Val,T<:Val,INITIALIZE}
     fallback = quote
         return _transition_from_current_fallback!(
             action,
@@ -1425,7 +1555,7 @@ end
         state_node = QuoteNode(state)
         quote
             if current_state === $state_node
-                return _transition_from_current!(
+                return $(INITIALIZE ? :_transition_from_current! : :_restore_from_current!)(
                     action,
                     sm,
                     Val{$state_node}(),
@@ -1436,6 +1566,19 @@ end
             $next
         end
     end
+end
+
+@inline function _restore_from_current!(
+    action::F,
+    sm,
+    current_state::Val,
+    source_state::Val,
+    target::Val,
+) where {F<:Function}
+    _static_isancestor(sm, source_state, current_state) || throw(HsmStateError(
+        "History transition source is not active",
+    ))
+    return _transition_static!(action, sm, current_state, source_state, target, Val(false))
 end
 
 @generated function _static_descendant_states(
@@ -1462,6 +1605,7 @@ end
     current_state::Symbol,
     source_state::S,
     target::T,
+    initialize::Val=Val(true),
 ) where {F<:Function,SM,S<:Val,T<:Val}
     registered_current_states = ValSplit.valarg_params(
         _transition_from_current!,
@@ -1481,6 +1625,7 @@ end
         current_state,
         source_state,
         target,
+        initialize,
     )
 end
 
@@ -1701,6 +1846,7 @@ function _static_transition_paths_from_types(
     current_path_type,
     source_path_type,
     target_path_type,
+    external_self::Bool=true,
 )
     current_path = _state_path_symbols(current_path_type)
     source_path = _state_path_symbols(source_path_type)
@@ -1709,7 +1855,7 @@ function _static_transition_paths_from_types(
     source = first(source_path)
     target = first(target_path)
 
-    lca = if source === target
+    lca = if source === target && external_self
         length(source_path) == 1 ? :Root : source_path[2]
     else
         index = findfirst(state -> state in target_path, source_path)
@@ -1739,6 +1885,7 @@ end
     current_state::C,
     source_state::S,
     target::T,
+    initialize::Val=Val(true),
 ) where {F<:Function,SM,C<:Val,S<:Val,T<:Val}
     history_owners = _registered_history_owners(SM)
     Base.@inline _execute_static_transition!(
@@ -1750,6 +1897,7 @@ end
         _state_path(sm, current_state),
         _state_path(sm, source_state),
         _state_path(sm, target),
+        initialize,
     )
     return EventHandled
 end
@@ -1763,6 +1911,7 @@ end
     current_path::C,
     source_path::S,
     target_path::T,
+    initialize::Val=Val(true),
 ) where {H<:Val,R<:Val,Q<:Val,F<:Function,SM,C<:_StatePath,S<:_StatePath,T<:_StatePath}
     previous_phase = _begin_transition!(sm, Val(true))
     try
@@ -1775,6 +1924,7 @@ end
             current_path,
             source_path,
             target_path,
+            initialize,
         )
     finally
         _finish_transition!(sm, previous_phase)
@@ -1791,7 +1941,8 @@ end
     current_path::C,
     source_path::S,
     target_path::T,
-) where {HISTORY_OWNERS,FINAL_STATES,TERMINATE_STATES,F<:Function,C<:_StatePath,S<:_StatePath,T<:_StatePath}
+    initialize::Val{INITIALIZE}=Val(true),
+) where {HISTORY_OWNERS,FINAL_STATES,TERMINATE_STATES,F<:Function,C<:_StatePath,S<:_StatePath,T<:_StatePath,INITIALIZE}
     current, target, lca, exits, entries = try
         _static_transition_paths_from_types(C, S, T)
     catch error
@@ -1807,14 +1958,28 @@ end
         $(QuoteNode(lca)),
     )))
 
+    source = first(_state_path_symbols(S))
+    if source !== target && target === lca
+        target_path = _state_path_symbols(T)
+        for state in HISTORY_OWNERS
+            state in target_path || continue
+            push!(body.args, :(_record_static_history!(
+                Val{$(QuoteNode(FINAL_STATES))}(),
+                sm,
+                Val{$(QuoteNode(state))}(),
+                Val{$(QuoteNode(current))}(),
+            )))
+        end
+    end
+
     for state in exits
         state_node = QuoteNode(state)
         if state !== current && state in HISTORY_OWNERS
-            remembered = current in FINAL_STATES ? :Root : current
-            push!(body.args, :(_set_history!(
+            push!(body.args, :(_record_static_history!(
+                Val{$(QuoteNode(FINAL_STATES))}(),
                 sm,
                 Val{$state_node}(),
-                $(QuoteNode(remembered)),
+                Val{$(QuoteNode(current))}(),
             )))
         end
         push!(body.args, :(trace_exit(sm, $state_node)))
@@ -1838,8 +2003,13 @@ end
     end
 
     target_node = QuoteNode(target)
+    activation = if source !== target && target === lca
+        :(_complete_region!(sm, Val{$target_node}()))
+    else
+        :(_activate_transition_target!(sm, Val{$target_node}(), initialize))
+    end
     append!(body.args, [
-        :(_activate_target!(sm, Val{$target_node}())),
+        activation,
         :(trace_transition_end(
             sm,
             $(QuoteNode(current)),
@@ -1877,6 +2047,9 @@ end
     owner::Val,
     targets::Val,
 ) where {FI<:Function,FS<:Function,SOURCE}
+    if _transition_phase(sm) === _INITIAL_TRANSITION_ALLOWED
+        _validate_initial_owner(sm, source_state, owner)
+    end
     if !_static_state_registered(sm, source_state) ||
        !_static_state_registered(sm, owner) ||
        !_choice_targets_registered(sm, targets)
@@ -2043,7 +2216,7 @@ end
     ::Val{TARGETS},
 ) where {HISTORY_OWNERS,R<:Val,Q<:Val,FI<:Function,FS<:Function,C<:_StatePath,S<:_StatePath,O<:_StatePath,TARGETS}
     current, owner, _, exits, owner_entries = try
-        _static_transition_paths_from_types(C, S, O)
+        _static_transition_paths_from_types(C, S, O, false)
     catch error
         message = sprint(showerror, error)
         return :(throw(HsmStateError($message)))
@@ -2333,7 +2506,9 @@ end
     kind::HistoryKind,
 ) where {F<:Function}
     target = _history_target(sm, remembered, owner, kind)
-    return _transition_from!(action, sm, source_state, target)
+    return _transition_from!(
+        action, sm, source_state, target, Val(!(kind isa DeepHistory)),
+    )
 end
 
 @generated function _transition_history_target_switch!(
@@ -2484,9 +2659,9 @@ end
         kind,
     )
     if INTERNAL
-        return _transition_dynamic_from_handler!(action, sm, target)
+        return _transition_dynamic_from_handler!(action, sm, target, Val(!(kind isa DeepHistory)))
     end
-    return _transition_dynamic!(action, sm, target)
+    return _transition_dynamic!(action, sm, target, Val(!(kind isa DeepHistory)))
 end
 
 @generated function _transition_history_owner_switch!(
@@ -2613,8 +2788,10 @@ function transition!(action::F, sm, t::Symbol) where {F<:Function}
     return _transition_dynamic!(action, sm, t)
 end
 
-function _transition_dynamic!(action::F, sm, t::Symbol) where {F<:Function}
-    _execute_dynamic_transition!(action, sm, t, Val(false))
+function _transition_dynamic!(
+    action::F, sm, t::Symbol, initialize::Val=Val(true),
+) where {F<:Function}
+    _execute_dynamic_transition!(action, sm, t, Val(false), initialize)
     _drain_completion_events!(sm)
     return EventHandled
 end
@@ -2623,8 +2800,9 @@ end
     action::F,
     sm,
     t::Symbol,
+    initialize::Val=Val(true),
 ) where {F<:Function}
-    _execute_dynamic_transition!(action, sm, t, Val(true))
+    _execute_dynamic_transition!(action, sm, t, Val(true), initialize)
     return EventHandled
 end
 
@@ -2633,6 +2811,7 @@ function _execute_dynamic_transition!(
     sm,
     t::Symbol,
     internal::Val{INTERNAL},
+    initialize::Val=Val(true),
 ) where {F<:Function,INTERNAL}
     previous_phase = _begin_transition!(sm, internal)
     try
@@ -2642,6 +2821,15 @@ function _execute_dynamic_transition!(
 
         # Trace transition lifecycle
         trace_transition_begin(sm, c, t, lca)
+
+        if s !== t && t === lca
+            _record_completion_history!(
+                Val(_registered_history_owners(typeof(sm))),
+                sm,
+                c,
+                t,
+            )
+        end
 
         # Perform exit transitions from the current state
         do_exit!(sm, c, lca)
@@ -2658,12 +2846,38 @@ function _execute_dynamic_transition!(
             do_entry!(sm, lca, t)
         end
 
-        _activate_target!(sm, t)
+        if s !== t && t === lca
+            _complete_region_symbol_switch!(Val(_registered_states(typeof(sm))), sm, t)
+        elseif initialize === Val(true)
+            _activate_target!(sm, t)
+        else
+            _restore_target_symbol_switch!(Val(_registered_states(typeof(sm))), sm, t)
+        end
         trace_transition_end(sm, c, t)
     finally
         _finish_transition!(sm, previous_phase)
     end
     return nothing
+end
+
+@generated function _complete_region_symbol_switch!(
+    ::Val{STATES}, sm, target::Symbol,
+) where {STATES}
+    fallback = STATES == (:Root,) ? :(_complete_region!(sm, target)) :
+        :(throw(HsmStateError("Unknown completed Region owner $target")))
+    return foldr(STATES; init=fallback) do state, next
+        :(target === $(QuoteNode(state)) ? _complete_region!(sm, Val{$(QuoteNode(state))}()) : $next)
+    end
+end
+
+@generated function _restore_target_symbol_switch!(
+    ::Val{STATES}, sm, target::Symbol,
+) where {STATES}
+    fallback = STATES == (:Root,) ? :(_complete_region!(sm, target)) :
+        :(throw(HsmStateError("Unknown history target $target")))
+    return foldr(STATES; init=fallback) do state, next
+        :(target === $(QuoteNode(state)) ? _activate_transition_target!(sm, Val{$(QuoteNode(state))}(), Val(false)) : $next)
+    end
 end
 
 """

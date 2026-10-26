@@ -4,20 +4,22 @@ This document maps Hsm.jl's executable subset of UML state-machine semantics
 to implementation and verification evidence. Semantic authority is
 [UML 2.5.1, Clause 14.2](https://www.omg.org/spec/UML/2.5.1/PDF) and
 [PSSM 1.0](https://www.omg.org/spec/PSSM/1.0/PDF). Hsm.jl uses one active leaf
-in one implicit Region and keeps States and events public as `Symbol`s.
+in one implicit Region and keeps States and events public as `Symbol`s. A
+completed composite can remain active without an active child; `current` then
+returns that composite State until a later Transition leaves or reactivates it.
 
 ## Requirements
 
 | ID | Requirement | Source | Implementation | Verification | Status |
 |---|---|---|---|---|---|
 | HSM-RTC-001 | An accepted event completes its exit/effect/entry processing before another event is dispatched; reentrant dispatch and transitions are rejected. | UML 14.2.3.9; PSSM 8.5.2 | transition-phase guards, `dispatch!`, `_begin_transition!` | `test_handler_rules.jl` | Implemented |
-| HSM-STATE-001 | Initial activation follows the declared initial path. A Transition exits active States from innermost to outermost, executes its effect, then enters target States from outermost to innermost. Transition kind is topology-derived: a composite source targeting its descendant is local and preserves the source State; a source-to-itself Transition is external and exits/re-enters the source; an event handler that performs its effect and returns `EventHandled` without selecting a Transition represents an internal Transition. | UML 14.2.3.8 and 14.2.3.9; PSSM 8.5.3 | `_transition_core!`, static state paths, `on_initial!`, handled event paths | `test_state_machine.jl`, `test_static_transitions.jl`, `test_tracing.jl`, `test_type_stability.jl` | Implemented |
+| HSM-STATE-001 | Initial activation follows the declared initial path and rejects targets outside its owner before running effects. A Transition exits active States from innermost to outermost, executes its effect, then enters target States from outermost to innermost. Transition kind is topology-derived: a composite source targeting its descendant is local and preserves the source State; a source-to-itself Transition is external and exits/re-enters the source; an event handler that performs its effect and returns `EventHandled` without selecting a Transition represents an internal Transition. Targeting an active containing State completes the source Region without reentry or default activation. | UML 14.2.3.8 and 14.2.3.9; PSSM 8.5.3 | `_transition_core!`, static state paths, `on_initial!`, handled event paths | `test_state_machine.jl`, `test_static_transitions.jl`, `test_tracing.jl`, `test_type_stability.jl`, `test_runtime_regressions.jl` | Implemented |
 | HSM-EVENT-001 | Event dispatch searches from the active leaf toward its ancestors. A specific handler takes precedence over a default handler; an unhandled event leaves the active configuration unchanged. | UML 14.2.3.9; PSSM 8.5.2 | `dispatch!`, ValSplit event boundary, handler registries | `test_state_machine.jl`, `test_default_handlers.jl`, `test_type_stability.jl` | Implemented |
 | HSM-EDGE-001 | A handler Transition has a static literal target while the public state/event representation remains `Symbol`. | Project performance contract | handler AST rewrite, `_StatePath`, ValSplit boundaries | `test_static_transitions.jl`, `test_type_stability.jl` | Implemented |
 | HSM-HANDLER-001 | Entry and exit Behaviors execute only within an already selected Transition and cannot initiate another Transition. Choice guards and Transition effects likewise cannot start reentrant transition processing or recursive dispatch. | UML 14.2.3.4.3 and 14.2.3.9; PSSM 8.5.3 | handler macro validation and transition-phase guards | `test_handler_rules.jl`, `test_choice.jl` | Implemented |
-| HSM-HIST-001 | Deep history restores the former active leaf path; shallow history restores the former direct child and follows its normal initial entry. | PSSM 8.5.7.4 | `transition_history!`, `_history_target`, static history target split | `test_history.jl` | Implemented |
-| HSM-HIST-002 | History is recorded independently per owning composite State. With no stored history, an explicit default-history Transition is used when declared; otherwise normal initial entry is used. Incoming and default-edge effects execute in that order before target entry. | PSSM 8.5.7.4 | `@historydef`, `@on_history_default`, `_HistoryDefaultAction` | `test_history.jl`, including independent-owner and default-history cases | Implemented |
-| HSM-CHOICE-001 | Choice exits the source, runs its incoming effect, enters the containing State path, then evaluates all outgoing guards. | PSSM 8.5.7.3 | `@choice`, `_execute_static_choice_body!` | `test_choice.jl` ordering and guard tests | Implemented |
+| HSM-HIST-001 | Deep history restores the former active path, including a completed composite endpoint, without replaying defaults; shallow history restores the former direct child and follows its normal initial entry. | PSSM 8.5.7.4 | `transition_history!`, `_history_target`, static history target split | `test_history.jl`, `test_runtime_regressions.jl` | Implemented |
+| HSM-HIST-002 | History is recorded independently per owning composite State. A nested FinalState clears only its directly owning Region history; enclosing Regions remember the completed composite. Completion by an ancestor target retains the last nonfinal child history. With no stored history, an explicit default-history Transition is used when declared; otherwise normal initial entry is used. Incoming and default-edge effects execute in that order before target entry. | PSSM 8.5.7.4 | `@historydef`, `@on_history_default`, `_HistoryDefaultAction` | `test_history.jl`, `test_runtime_regressions.jl`, including independent-owner, nested-completion, and default-history cases | Implemented |
+| HSM-CHOICE-001 | Choice exits the source, runs its incoming effect, enters the containing State path if needed while preserving an already active owner, then evaluates all outgoing guards. | PSSM 8.5.7.3 | `@choice`, `_execute_static_choice_body!` | `test_choice.jl`, `test_runtime_regressions.jl` ordering and guard tests | Implemented |
 | HSM-CHOICE-002 | Choice always has an `else` edge and never becomes a stable active vertex. Only the selected outgoing effect and target entry execute. | UML 14.2; PSSM 8.5.7.3 | choice macro validation, `_choice_target_switch!` | `test_choice.jl` | Implemented |
 | HSM-CHOICE-003 | After all guards are evaluated, Hsm.jl selects the first enabled guarded edge in source order. | Project-defined deterministic ChoiceStrategy | generated selector in `_rewrite_choice_macro` | `test_choice.jl` | Implemented deviation |
 | HSM-FINAL-001 | A FinalState has no child States or State Behaviors. Entering it clears its Region's history. | UML 14.2; PSSM 8.5.3 and 8.5.5 | `@finaldef`, hierarchy validation, `_enter_final!` | `test_completion.jl` | Implemented |
@@ -26,31 +28,27 @@ in one implicit Region and keeps States and events public as `Symbol`s.
 | HSM-COMP-002 | Pending completion events are processed before a later external event; an unhandled completion event is discarded. | PSSM 8.4 and 8.5.9 | `_drain_completion_events!` | `test_completion.jl` | Implemented |
 | HSM-TERM-001 | A terminate target enters any required containing State path, terminates the entire machine without cleanup exits, and permits no later execution. | PSSM 8.5.7.1 | `@terminatedef`, `_enter_terminate!`, lifecycle guards | `test_terminate.jl` | Implemented adaptation |
 | HSM-ABSTRACT-001 | States, handlers, and Pseudostate registrations declared for an abstract machine family are inherited by each concrete subtype. Concrete handlers may specialize shared behavior, including for parametric families. | Project API contract | abstract-family registries and generated handler methods | `test_abstract_type.jl`, `test_abstract_features.jl`, `test_super_macro.jl` | Implemented |
-| HSM-MACRO-001 | Public macros preserve supported struct, `const` user-field, `where`, `@kwdef`, docstring, qualified-import, and lexical-scope forms and reject unsupported or unsafe syntax without partial transformation. | Project API and hygiene contract | macro parsers and scope-aware AST transformations | `test_macros.jl`, `test_macro_expansion.jl`, `test_hsmdef_edge_cases.jl`, `test_handler_rules.jl`, `test_docstrings.jl` | Implemented |
+| HSM-MACRO-001 | Public macros preserve supported struct, `const` user-field, `where`, `@kwdef`, docstring, qualified-import, and lexical-scope forms and reject unsupported or unsafe syntax without partial transformation. | Project API and hygiene contract | macro parsers and scope-aware AST transformations | `test_macros.jl`, `test_macro_expansion.jl`, `test_hsmdef_edge_cases.jl`, `test_handler_rules.jl`, `test_docstrings.jl`, `test_macro_regressions.jl` | Implemented |
 | HSM-TRACE-001 | Tracing observes initialization, dispatch, unhandled events, actions, and exit/effect/entry order without changing machine semantics. | Project observability contract | tracing callbacks around dispatch and transition phases | `test_tracing.jl` | Implemented |
-| HSM-DIAGRAM-001 | Diagram tooling builds a format-neutral description from the statically registered machine hierarchy and possible Transition edges without constructing or executing the machine. The model represents terminate as a UML Pseudostate distinct from FinalState. PlantUML and Mermaid output retain every registered edge and document notation adaptations where a renderer lacks a native UML vertex. Diagram generation has no non-stdlib runtime dependency and is outside dispatch and Transition hot paths. Arbitrary handler bodies and manually implemented unregistered edges are not inferred. | Project tooling contract | `_diagram_transition_edge`, `diagram_model`, dependency-free PlantUML and Mermaid serializers | `test_diagrams.jl` model, inheritance, semantic-edge, adaptation, deterministic-output, IO, rejection, and container-render tests | Implemented |
-| HSM-PERF-001 | Warmed library-owned handled, ancestor-handled, unhandled, external-self, action, nested-initial, abstract-family, choice, history, completion, and terminate paths infer concrete returns and allocate zero heap bytes when callbacks do not allocate. | Project performance contract | finite value splits and generated static kernels | `test_type_stability.jl`, `test_allocation_tests_alloccheck.jl`, and feature-specific allocation assertions | Implemented |
+| HSM-DIAGRAM-001 | Diagram tooling builds a format-neutral description from the statically registered machine hierarchy and possible Transition edges without constructing or executing the machine. The model represents terminate as a UML Pseudostate distinct from FinalState. The model is a registration inventory that retains inherited edges from overridden handlers, rather than an exact effective dispatch graph. PlantUML and Mermaid output retain every registered edge, use collision-free generated vertex identifiers, and document notation adaptations where a renderer lacks a native UML vertex. Diagram generation has no non-stdlib runtime dependency and is outside dispatch and Transition hot paths. Arbitrary handler bodies and manually implemented unregistered edges are not inferred. | Project tooling contract | `_diagram_transition_edge`, `diagram_model`, dependency-free PlantUML and Mermaid serializers | `test_diagrams.jl`, `test_diagram_regressions.jl` model, inheritance, semantic-edge, identity, adaptation, deterministic-output, IO, rejection, and container-render tests | Implemented |
+| HSM-PERF-001 | Warmed library-owned handled, ancestor-handled, unhandled, external-self, action, nested-initial, abstract-family, choice, history, completion, and terminate paths infer concrete returns and allocate zero heap bytes when callbacks do not allocate. | Project performance contract | finite value splits and generated static kernels | `test_type_stability.jl`, `test_allocation_tests_alloccheck.jl`, `test_runtime_regressions.jl`, and feature-specific allocation assertions | Implemented |
 
-## Review exceptions — 2026-10-26
+## Review disposition — 2026-10-26
 
-The full review of source commit `bb00ed8` established the following open
-exceptions to the implementation and verification claims above. Details,
-reproductions, platform/version evidence, and dispositions are in
-[docs/REVIEW.md](docs/REVIEW.md). No runtime repair is included in this review.
+The review of source commit `bb00ed8` and the repairs on
+`repair/main-review-findings` are recorded in [docs/REVIEW.md](docs/REVIEW.md).
+MAIN-002 through MAIN-011 and MAIN-013 are repaired with dedicated semantic and
+macro regression tests. MAIN-014's README block is executed directly by a test,
+and MAIN-015's exported bindings now have attached documentation. MAIN-012 is
+resolved by explicitly documenting and testing the existing registration
+inventory contract; an effective dispatch graph is not claimed.
 
-| Requirement | Open review evidence |
-|---|---|
-| HSM-PERF-001 | MAIN-001: the freshly resolved ValSplit dependency violates warmed zero-allocation processing on Julia 1.10.12; current stable passes. |
-| HSM-HIST-001/002 | MAIN-002: an inner FinalState causes enclosing non-final Region history to be discarded. |
-| HSM-STATE-001, HSM-CHOICE-001 | MAIN-003: an initial choice can exit and reenter its already active owner. |
-| HSM-STATE-001, HSM-COMP-001/002 | MAIN-004: a transition to an active containing State restarts defaults instead of completing the source Region as required by PSSM. |
-| HSM-STATE-001 | MAIN-005: initial targets are not checked for containment. |
-| HSM-MACRO-001, HSM-ABSTRACT-001 | MAIN-006 through MAIN-011: argument binding, nested function scope, `@super` hygiene, parametric constructors/registrations, and unsupported inner constructors have executable counterexamples. |
-| HSM-DIAGRAM-001 | MAIN-013: generated Pseudostate names can collide with State Symbols. MAIN-012 is a separate modeling improvement requiring reconciliation of raw registration inventory with effective-machine semantics. |
-
-The existing “Implemented” statuses describe the covered subset and do not
-claim that these counterexamples passed. The gaps remain open until their
-repair and corresponding verification evidence are recorded.
+HSM-PERF-001 retains one open exception: MAIN-001's ValSplit boundary allocates
+on Julia 1.10.12 with the freshly resolved dependency. Julia 1.13.3 retains the
+zero-byte contract on the tested concrete paths. At the user's direction,
+further Julia 1.10 allocation work is deferred; the declared minimum version and
+allocation assertions are retained. The verification evidence below does not
+claim that Julia 1.10 satisfies HSM-PERF-001.
 
 ## Verification matrix
 

@@ -1,14 +1,29 @@
-# Custom exception types for better error reporting
+"""
+    HsmMacroError(msg)
+
+Report unsupported or unsafe syntax in an Hsm macro definition.
+"""
 struct HsmMacroError <: Exception
     msg::String
 end
 Base.showerror(io::IO, e::HsmMacroError) = print(io, "HsmMacroError: ", e.msg)
 
+"""
+    HsmStateError(msg)
+
+Report an invalid State hierarchy, configuration, or State transition.
+"""
 struct HsmStateError <: Exception
     msg::String
 end
 Base.showerror(io::IO, e::HsmStateError) = print(io, "HsmStateError: ", e.msg)
 
+"""
+    HsmEventError(msg)
+
+Report invalid event processing, including recursive dispatch or a handler result
+that does not satisfy the event-processing contract.
+"""
 struct HsmEventError <: Exception
     msg::String
 end
@@ -223,10 +238,35 @@ function _binding_names!(names::Set{Symbol}, binding)
     return names
 end
 
+function _short_function_signature(expr)
+    expr isa Expr && expr.head == :(=) || return nothing
+    signature, _ = unwrap_where_signature(expr.args[1])
+    if signature isa Expr && signature.head == :(::)
+        signature = signature.args[1]
+    end
+    return signature isa Expr && signature.head == :call ? signature : nothing
+end
+
 function _scope_assignments!(names::Set{Symbol}, expr)
     expr isa Expr || return names
-    expr.head in (:function, :(->), :quote, :macrocall, :struct, :module, :baremodule) &&
+    if expr.head == :function
+        signature, _ = unwrap_where_signature(expr.args[1])
+        if signature isa Expr && signature.head == :(::)
+            signature = signature.args[1]
+        end
+        if signature isa Expr && signature.head == :call
+            _binding_names!(names, signature.args[1])
+        end
         return names
+    end
+    expr.head in (:(->), :quote, :macrocall, :struct, :module, :baremodule) &&
+        return names
+
+    short_signature = _short_function_signature(expr)
+    if short_signature !== nothing
+        _binding_names!(names, short_signature.args[1])
+        return names
+    end
 
     if expr.head == :(=)
         _binding_names!(names, expr.args[1])
@@ -292,9 +332,11 @@ mutable struct HandlerTransitionState
     handler_kind::Symbol
     trigger::Symbol
     choice_count::Int
+    machine_reassigned::Bool
 end
 
-HandlerTransitionState(handler_kind::Symbol=:event, trigger::Symbol=:unknown) =
+HandlerTransitionState(handler_kind::Symbol=:event, trigger::Symbol=:unknown;
+                       machine_reassigned=false) =
     HandlerTransitionState(
         0,
         Set{Symbol}(),
@@ -302,6 +344,7 @@ HandlerTransitionState(handler_kind::Symbol=:event, trigger::Symbol=:unknown) =
         handler_kind,
         trigger,
         0,
+        machine_reassigned,
     )
 
 function _transition_macro_error(error_prefix, message)
@@ -361,7 +404,7 @@ function _rewrite_direct_transition(
     end
 
     call.args[machine_index] === smarg || return nothing
-    smarg in assigned_names && return nothing
+    state.machine_reassigned && return nothing
 
     if handler_kind in (:entry, :exit, :history_default, :choice_effect)
         behavior = if handler_kind === :entry
@@ -838,6 +881,8 @@ function _rewrite_handler_expr(
     expr.head in (:function, :(->), :quote, :struct, :module, :baremodule) &&
         return expr
 
+    _short_function_signature(expr) === nothing || return expr
+
     if expr.head == :do
         call = expr.args[1]
         if call isa Expr
@@ -908,7 +953,7 @@ function rewrite_static_transitions(expr, smarg::Symbol, source_state::Symbol)
         "transition rewrite",
         assigned_names,
         false,
-        HandlerTransitionState(),
+        HandlerTransitionState(machine_reassigned=smarg in assigned_names),
     )
 end
 
@@ -928,11 +973,17 @@ function rewrite_handler_transitions(
     is_any_state,
     handler_kind::Symbol,
     error_prefix,
-    trigger::Symbol=:none,
+    trigger::Symbol=:none;
+    arguments=(),
 )
     source_state = is_any_state ? nothing : static_state_parameter(state_arg)
     assigned_names = _scope_assignments!(Set{Symbol}(), full_body)
-    state = HandlerTransitionState(handler_kind, trigger)
+    state = HandlerTransitionState(
+        handler_kind, trigger; machine_reassigned=smarg in assigned_names,
+    )
+    for argument in arguments
+        _binding_names!(assigned_names, argument)
+    end
     rewritten = _rewrite_handler_expr(
         full_body,
         smarg,
@@ -953,10 +1004,14 @@ function rewrite_handler_transitions(
 end
 
 
-function generate_history_owner_registrations(smtype, history_owners)
+function registration_machine_type(smtype, where_clauses)
+    return isempty(where_clauses) ? smtype :
+           Expr(:where, deepcopy(smtype), deepcopy(where_clauses)...)
+end
+
+function generate_history_owner_registrations(smtype, history_owners, where_clauses=Any[])
     registrations = Expr(:block)
-    registration_type = smtype isa Expr && smtype.head == :curly ?
-                        smtype.args[1] : smtype
+    registration_type = registration_machine_type(smtype, where_clauses)
     for owner in sort!(collect(history_owners); by=String)
         owner_node = QuoteNode(owner)
         token_node = QuoteNode(gensym("history_owner"))
@@ -971,11 +1026,10 @@ function generate_history_owner_registrations(smtype, history_owners)
     return registrations
 end
 
-function generate_diagram_edge_registrations(smtype, diagram_edges)
+function generate_diagram_edge_registrations(smtype, diagram_edges, where_clauses=Any[])
     registrations = Expr(:block)
     smtype === :Any && return registrations
-    registration_type = smtype isa Expr && smtype.head == :curly ?
-                        smtype.args[1] : smtype
+    registration_type = registration_machine_type(smtype, where_clauses)
     for edge in diagram_edges
         source_node = QuoteNode(edge.source)
         source_kind_node = QuoteNode(edge.source_kind)
@@ -1009,12 +1063,12 @@ function generate_state_behavior_registration(
     state_arg,
     is_any_state,
     behavior_kind::Symbol,
+    where_clauses=Any[],
 )
     is_any_state && return Expr(:block)
     state = static_state_parameter(state_arg)
     state === nothing && return Expr(:block)
-    registration_type = smtype isa Expr && smtype.head == :curly ?
-                        smtype.args[1] : smtype
+    registration_type = registration_machine_type(smtype, where_clauses)
     state_node = QuoteNode(state)
     kind_node = QuoteNode(behavior_kind)
     token_node = QuoteNode(gensym("state_behavior"))
@@ -1600,7 +1654,10 @@ macro on_history_default(def)
     body = isempty(owner_injected) ? def.args[2] :
            Expr(:block, owner_injected..., def.args[2])
     assigned_names = _scope_assignments!(Set{Symbol}(), body)
-    transition_state = HandlerTransitionState()
+    transition_state = HandlerTransitionState(machine_reassigned=smarg in assigned_names)
+    for argument in (args..., where_clauses...)
+        _binding_names!(assigned_names, argument)
+    end
     body = _rewrite_handler_expr(
         body,
         smarg,
@@ -1627,9 +1684,9 @@ macro on_history_default(def)
         only(owner_args),
         false,
         :history_default,
+        where_clauses,
     )
-    registration_type = smtype isa Expr && smtype.head == :curly ?
-                        smtype.args[1] : smtype
+    registration_type = registration_machine_type(smtype, where_clauses)
     owner_node = QuoteNode(owner_state)
     kind_node = QuoteNode(kind_key)
     token_node = QuoteNode(gensym("history_default_behavior"))
@@ -1724,20 +1781,22 @@ macro on_event(def)
         is_any_state,
         :event,
         error_prefix,
-        event_trigger,
+        event_trigger;
+        arguments=(new_args..., where_clauses...),
     )
 
     # Generate the final function using proper Expr construction for better macro hygiene
     # This ensures correct handling of variables from the caller's context
     handler_impl = generate_event_handler_impl(smarg, smtype, new_args, full_body, is_any_event, event_name, is_any_state, state_name, method_where_clause)
-    history_registrations = generate_history_owner_registrations(smtype, history_owners)
+    history_registrations = generate_history_owner_registrations(smtype, history_owners, where_clauses)
     diagram_registrations =
-        generate_diagram_edge_registrations(smtype, diagram_edges)
+        generate_diagram_edge_registrations(smtype, diagram_edges, where_clauses)
     behavior_registration = generate_state_behavior_registration(
         smtype,
         new_args[2],
         is_any_state,
         :event,
+        where_clauses,
     )
 
     return esc(quote
@@ -1801,7 +1860,8 @@ macro on_initial(def)
         new_args[2],
         is_any_state,
         :initial,
-        error_prefix,
+        error_prefix;
+        arguments=(new_args..., where_clauses...),
     )
 
     # Use helper function to generate the handler implementation
@@ -1816,14 +1876,15 @@ macro on_initial(def)
         state_name,
         method_where_clause,
     )
-    history_registrations = generate_history_owner_registrations(smtype, history_owners)
+    history_registrations = generate_history_owner_registrations(smtype, history_owners, where_clauses)
     diagram_registrations =
-        generate_diagram_edge_registrations(smtype, diagram_edges)
+        generate_diagram_edge_registrations(smtype, diagram_edges, where_clauses)
     behavior_registration = generate_state_behavior_registration(
         smtype,
         new_args[2],
         is_any_state,
         :initial,
+        where_clauses,
     )
 
     return esc(quote
@@ -1866,7 +1927,8 @@ macro on_completion(def)
         new_args[2],
         false,
         :completion,
-        error_prefix,
+        error_prefix;
+        arguments=(new_args..., where_clauses...),
     )
     method_where_clause = isempty(where_clauses) ? nothing : where_clauses
     handler_impl = generate_state_handler_impl(
@@ -1882,19 +1944,20 @@ macro on_completion(def)
     completion_state = static_state_parameter(new_args[2])
     completion_state_node = QuoteNode(completion_state)
     token_node = QuoteNode(gensym("completion_state"))
-    registration_type = smtype isa Expr && smtype.head == :curly ?
-                        smtype.args[1] : smtype
+    registration_type = registration_machine_type(smtype, where_clauses)
     history_registrations = generate_history_owner_registrations(
         smtype,
         history_owners,
+        where_clauses,
     )
     diagram_registrations =
-        generate_diagram_edge_registrations(smtype, diagram_edges)
+        generate_diagram_edge_registrations(smtype, diagram_edges, where_clauses)
     behavior_registration = generate_state_behavior_registration(
         smtype,
         new_args[2],
         false,
         :completion,
+        where_clauses,
     )
 
     return esc(quote
@@ -1966,7 +2029,8 @@ macro on_entry(def)
         new_args[2],
         is_any_state,
         :entry,
-        error_prefix,
+        error_prefix;
+        arguments=(new_args..., where_clauses...),
     )
     isempty(diagram_edges) || error(
         "$error_prefix: internal error: entry Behavior registered a Transition edge",
@@ -1984,12 +2048,13 @@ macro on_entry(def)
         state_name,
         method_where_clause,
     )
-    history_registrations = generate_history_owner_registrations(smtype, history_owners)
+    history_registrations = generate_history_owner_registrations(smtype, history_owners, where_clauses)
     behavior_registration = generate_state_behavior_registration(
         smtype,
         new_args[2],
         is_any_state,
         :entry,
+        where_clauses,
     )
 
     return esc(quote
@@ -2062,7 +2127,8 @@ macro on_exit(def)
         new_args[2],
         is_any_state,
         :exit,
-        error_prefix,
+        error_prefix;
+        arguments=(new_args..., where_clauses...),
     )
     isempty(diagram_edges) || error(
         "$error_prefix: internal error: exit Behavior registered a Transition edge",
@@ -2080,12 +2146,13 @@ macro on_exit(def)
         state_name,
         method_where_clause,
     )
-    history_registrations = generate_history_owner_registrations(smtype, history_owners)
+    history_registrations = generate_history_owner_registrations(smtype, history_owners, where_clauses)
     behavior_registration = generate_state_behavior_registration(
         smtype,
         new_args[2],
         is_any_state,
         :exit,
+        where_clauses,
     )
 
     return esc(quote
@@ -2201,6 +2268,10 @@ constructor accepts the original fields, initializes the generated runtime
 storage, and starts the machine at `:Root`. User fields declared `const` remain
 immutable after construction and are accepted by both direct and `Base.@kwdef`
 forms.
+
+Explicit parameterized construction, such as `MyStruct{Int}(value)`, uses the
+same initialization. Inner constructors are unsupported and are rejected at
+macro expansion because they can bypass runtime initialization.
 """
 macro hsmdef(expr)
     # Generate unique field names to avoid collisions
@@ -2230,6 +2301,8 @@ macro hsmdef(expr)
         struct_expr isa Expr && struct_expr.head == :struct || throw(HsmMacroError(
             "@hsmdef could not find the mutable struct wrapped by Base.@kwdef",
         ))
+
+        validate_mutable_struct(struct_expr)
 
         # Process the inner macro first to get its expansion
         inner_expanded = macroexpand(__module__, expr)
@@ -2289,6 +2362,7 @@ macro hsmdef(expr)
         struct_name = get_struct_name(struct_def)
         original_field_count = count_original_fields(struct_expr)
         additional_constructor = create_additional_constructor(struct_name, original_field_count)
+        parametric_constructor = create_parametric_constructor(struct_def, original_field_count)
 
         # Create the HSM interface methods
         # Concrete interface: field accessors must use concrete type (unique gensym'd fields)
@@ -2322,6 +2396,7 @@ macro hsmdef(expr)
         for constructor in constructors
             push!(result.args, constructor)
         end
+        push!(result.args, parametric_constructor)
         push!(result.args, additional_constructor)
         push!(result.args, concrete_interface)
         push!(result.args, abstract_interface)
@@ -2347,6 +2422,7 @@ macro hsmdef(expr)
         struct_name = get_struct_name(expr)
         original_field_count = count_original_fields(expr)
         additional_constructor = create_additional_constructor(struct_name, original_field_count)
+        parametric_constructor = create_parametric_constructor(expr, original_field_count)
 
         # Create the HSM interface methods
         # Concrete interface: field accessors must use concrete type (unique gensym'd fields)
@@ -2373,6 +2449,7 @@ macro hsmdef(expr)
 
         return esc(quote
             Base.@__doc__ $modified_struct
+            $parametric_constructor
             $additional_constructor
             $concrete_interface
             $abstract_interface
@@ -2469,6 +2546,39 @@ function count_original_fields(struct_expr)
     end
 
     return field_count
+end
+
+function create_parametric_constructor(struct_expr, field_count)
+    declaration = struct_expr.args[2]
+    if declaration isa Expr && declaration.head == :(<:)
+        declaration = declaration.args[1]
+    end
+    declaration isa Expr && declaration.head == :curly || return Expr(:block)
+    parameters = declaration.args[2:end]
+    names = Any[]
+    for parameter in parameters
+        if parameter isa Symbol
+            push!(names, parameter)
+        elseif parameter isa Expr && parameter.head in (:(<:), :(>:)) &&
+               parameter.args[1] isa Symbol
+            push!(names, parameter.args[1])
+        else
+            throw(HsmMacroError("@hsmdef has an unsupported type parameter declaration"))
+        end
+    end
+    constructor_type = Expr(:curly, declaration.args[1], names...)
+    signature = Expr(
+        :where,
+        Expr(:call, constructor_type,
+             Expr(:(::), :args, Expr(:curly, :Vararg, :Any, field_count))),
+        parameters...,
+    )
+    return Expr(:function, signature, quote
+        sm = $constructor_type(args..., nothing, Base.UInt8(0), Base.UInt8(0),
+                               nothing, :Root, :Root)
+        Hsm._initialize_machine!(sm)
+        sm
+    end)
 end
 
 function create_additional_constructor(struct_name, field_count)
@@ -2779,6 +2889,14 @@ function create_state_machine_abstract_interface(interface_type)
     return interface_methods
 end
 
+function _contains_inner_constructor(statement)
+    statement isa Expr || return false
+    (statement.head == :function || _short_function_signature(statement) !== nothing) &&
+        return true
+    statement.head in (:block, :macrocall) || return false
+    return any(_contains_inner_constructor, statement.args)
+end
+
 """
     validate_mutable_struct(struct_expr)
 
@@ -2795,8 +2913,15 @@ function validate_mutable_struct(struct_expr)
     is_mutable = struct_expr.args[1]
 
     if !is_mutable
-        struct_name = get_struct_name(struct_expr)
         error("must be explicitly declared as mutable")
+    end
+    for statement in struct_expr.args[3].args
+        if _contains_inner_constructor(statement)
+            throw(HsmMacroError(
+                "@hsmdef does not support inner constructors; define the user fields " *
+                "and use the generated initialized constructor",
+            ))
+        end
     end
 end
 
@@ -2876,6 +3001,11 @@ macro super(handler_kind, args...)
         throw(ArgumentError("$error_prefix: Unknown handler kind :$handler_kind. Must be one of: $(join(valid_handlers, ", "))"))
     end
 
+    abstract_type = gensym("abstract_type")
+    state_type = gensym("state_type")
+    event_type = gensym("event_type")
+    data_type = gensym("data_type")
+
     # Determine handler function name
     handler_func = Symbol(string(handler_kind) * "!")
 
@@ -2891,14 +3021,14 @@ macro super(handler_kind, args...)
         data_var = args[4]
 
         return esc(quote
-            let abstract_type = supertype(typeof($sm_var)),
-                state_type = typeof(Val($state_var)),
-                event_type = typeof(Val($event_var)),
-                data_type = typeof($data_var)
+            let $abstract_type = Base.supertype(Base.typeof($sm_var)),
+                $state_type = Base.typeof(Base.Val($state_var)),
+                $event_type = Base.typeof(Base.Val($event_var)),
+                $data_type = Base.typeof($data_var)
                 Base.invoke(
                     Hsm.$handler_func,
-                    Tuple{abstract_type, state_type, event_type, data_type},
-                    $sm_var, Val($state_var), Val($event_var), $data_var
+                    Base.Tuple{$abstract_type, $state_type, $event_type, $data_type},
+                    $sm_var, Base.Val($state_var), Base.Val($event_var), $data_var
                 )
             end
         end)
@@ -2911,12 +3041,12 @@ macro super(handler_kind, args...)
         state_var = args[2]
 
         return esc(quote
-            let abstract_type = supertype(typeof($sm_var)),
-                state_type = typeof(Val($state_var))
+            let $abstract_type = Base.supertype(Base.typeof($sm_var)),
+                $state_type = Base.typeof(Base.Val($state_var))
                 Base.invoke(
                     Hsm.$handler_func,
-                    Tuple{abstract_type, state_type},
-                    $sm_var, Val($state_var)
+                    Base.Tuple{$abstract_type, $state_type},
+                    $sm_var, Base.Val($state_var)
                 )
             end
         end)

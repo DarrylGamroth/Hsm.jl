@@ -28,4 +28,8 @@ using ValSplit
     include("test_completion.jl")
     include("test_terminate.jl")
     include("test_type_stability.jl")
+    include("test_runtime_regressions.jl")
+    include("test_macro_regressions.jl")
+    include("test_diagram_regressions.jl")
+    include("test_readme_examples.jl")
 end

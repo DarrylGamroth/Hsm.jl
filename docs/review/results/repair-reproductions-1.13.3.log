@@ -1,0 +1,93 @@
+Review reproduction run: Julia 1.13.3, x86_64-linux-gnu, threads=1
+
+REPRODUCTION allocations.jl
+Test Summary:      | Pass  Total  Time
+Core functionality |   29     29  0.8s
+Test Summary:                | Pass  Total  Time
+Lowest Common Ancestor (LCA) |   13     13  0.1s
+(julia = v"1.13.3", platform = "x86_64-linux-gnu", threads = 1, signature = "dispatch!(::AllocationRepro.Machine, ::Symbol, ::Int64)", bytes = 0, allocations = 0, minimum_seconds = 4.0e-8, valsplit_path = "/home/dgamroth/.julia/packages/ValSplit/bAexl/src/ValSplit.jl")
+EXIT 0 allocations.jl
+
+REPRODUCTION ancestor_target.jl
+result=EventHandled current=Done log=[:completed]
+EXIT 0 ancestor_target.jl
+
+REPRODUCTION argument_shadow.jl
+calls[] = 1
+Hsm.current(sm) = :A
+EXIT 0 argument_shadow.jl
+
+REPRODUCTION behavior_parameters.jl
+typeof(sm) = ParamBehaviorSm{Int64}
+sm.value = 2
+Hsm.current(sm) = :A
+Hsm.iscomplete(sm) = false
+typeof(sm) = ParamBehaviorSm{Float64}
+sm.value = 1.0
+Hsm.current(sm) = :A
+Hsm.iscomplete(sm) = true
+EXIT 0 behavior_parameters.jl
+
+REPRODUCTION bounded_parameters.jl
+EXIT 0 bounded_parameters.jl
+
+REPRODUCTION diagram_names.jl
+text = "@startuml\nhide empty description\ntitle Machine\n' Registration inventory includes inherited edges from overridden handlers.\n' Generated from statically registered Hsm.jl edges; handlers without\n' transition! calls are not inferred as internal Transitions.\n' PlantUML has no terminate Pseudostate; terminate uses a labeled state.\nstate \"B\" as state_1\nstate \"__hsm_initial_Root\" as state_2\n[*] --> state_2\nstate_2 --> state_1 : Go\n@enduml\n"
+EXIT 0 diagram_names.jl
+
+REPRODUCTION diagram_overrides.jl
+current(DiagramOverridesRepro.Concrete()) = :B
+initial_targets = [:A, :B]
+tick_targets = [:A, :B]
+EXIT 0 diagram_overrides.jl
+
+REPRODUCTION initial_choice_owner.jl
+current=A log=[:enter_owner]
+EXIT 0 initial_choice_owner.jl
+
+REPRODUCTION initial_escape.jl
+construction rejected: HsmStateError
+EXIT 0 initial_escape.jl
+
+REPRODUCTION inner_constructors.jl
+rejection = HsmMacroError("@hsmdef does not support inner constructors; define the user fields and use the generated initialized constructor")
+EXIT 0 inner_constructors.jl
+
+REPRODUCTION kwdef_parameters.jl
+typeof(sm) = KwParamSm{Int64}
+sm.x = 1
+Hsm.current(sm) = :A
+typeof(sm) = KwParamSm{Int64}
+sm.x = 1
+Hsm.current(sm) = :A
+EXIT 0 kwdef_parameters.jl
+
+REPRODUCTION nested_final_history.jl
+Start => EventHandled Leaf
+Finish => EventHandled Finished
+Leave => EventHandled Outside
+history_outer=Branch history_branch=Root
+Recall => EventHandled Leaf
+EXIT 0 nested_final_history.jl
+
+REPRODUCTION public_docs.jl
+missing = Symbol[]
+EXIT 0 public_docs.jl
+
+REPRODUCTION readme_abstract.jl
+Test Summary:                   | Pass  Total  Time
+README abstract-machine example |    6      6  5.1s
+EXIT 0 readme_abstract.jl
+
+REPRODUCTION short_functions.jl
+event = :Short
+Hsm.current(other) = :A
+event = :Long
+Hsm.current(other) = :A
+EXIT 0 short_functions.jl
+
+REPRODUCTION super_hygiene.jl
+sm.seen = 123
+EXIT 0 super_hygiene.jl
+
+Reproductions with failing assertions: 0/16
