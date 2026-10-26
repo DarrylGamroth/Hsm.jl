@@ -443,3 +443,31 @@ Independent final review checked the macro findings, diagram and README
 counterexamples, and consistency between remedies and regression oracles.
 It led to the MAIN-011 rejection oracle, correction of the MAIN-005 diagnostic
 setup, and explicit adjudication of MAIN-012's documented inventory scope.
+
+
+## Coverage follow-up — 2026-10-26
+
+The existing 837-test suite was rerun on Julia 1.13.3 with
+`Pkg.test(; coverage=true, allow_reresolve=false)` against a temporary source
+snapshot of `bb00ed8`. All 837 tests passed under instrumentation. Julia's source
+line counters were merged by source line across the main test process and the
+four example subprocesses. Review counterexamples were excluded.
+
+| Source | Covered executable lines | Line coverage |
+|---|---|---|
+| `src/Hsm.jl` | 685 / 714 | 95.94% |
+| `src/macros.jl` | 782 / 839 | 93.21% |
+| `src/diagrams.jl` | 295 / 298 | 98.99% |
+| Total | 1,762 / 1,851 | 95.19% |
+
+This is Julia-reported executable source-line coverage, not branch coverage,
+configuration coverage, or proof that macro-generated behavior is correct.
+Several review counterexamples follow already covered lines with different
+bindings, type parameters, or feature combinations. The high line percentage
+therefore does not contradict the confirmed defects. No coverage gate or test
+was weakened, and no production source was changed for this measurement.
+
+Structured counts and uncovered-line lists are in
+[review/results/coverage-1.13.3.json](review/results/coverage-1.13.3.json);
+the instrumented suite output is in
+[review/results/coverage-tests-1.13.3.log](review/results/coverage-tests-1.13.3.log).
