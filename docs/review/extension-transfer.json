@@ -1,0 +1,84 @@
+{
+  "source": "/home/dgamroth/workspaces/codex/Hsm.jl",
+  "target": "/home/dgamroth/workspaces/codex/Hsm.jl-orthogonal-repair",
+  "source_commit": "bb00ed87a0cd67c65e9198d028c5ff921678f825",
+  "files": [
+    {
+      "path": "SEMANTICS.md",
+      "sha256": "7a7bffe18fdb0b1a71adba8f7a07cb03c703069107e0fe359ce28b94c6fc3abb",
+      "untracked": false
+    },
+    {
+      "path": "src/Hsm.jl",
+      "sha256": "d84bd63553c0d00c3b8c9391191f2a76abdf62e1c9dc0c1c5f04491756485ffc",
+      "untracked": false
+    },
+    {
+      "path": "src/macros.jl",
+      "sha256": "1c500238efc341f2e450729a4d037b8302489b9f5c72ec73ac94b9b169692bb8",
+      "untracked": false
+    },
+    {
+      "path": "test/runtests.jl",
+      "sha256": "e6931fe43c7b5be1ba00153ce677a90991f7c628a32aefc43d2c55ec796c2cba",
+      "untracked": false
+    },
+    {
+      "path": "test/test_hsmdef_edge_cases.jl",
+      "sha256": "19aa3f3a488b3d8e80dec13146dab79680db47b1eaf038d45c99a34458902f32",
+      "untracked": false
+    },
+    {
+      "path": "test/test_macro_expansion.jl",
+      "sha256": "7a35c1212bee30b9e82b31b5b8242f0857bc25682921457e11f651ba90c09b58",
+      "untracked": false
+    },
+    {
+      "path": "test/test_region_activation.jl",
+      "sha256": "19aad41f9999547d5205f8d611ecac3dca8c66d33ec4c819be3a49b366d15990",
+      "untracked": true
+    },
+    {
+      "path": "test/test_region_dispatch.jl",
+      "sha256": "33627accf15fd508d05f95d08bd81559b3ab8b2eaff2f5fc763af41c8d148f8f",
+      "untracked": true
+    },
+    {
+      "path": "test/test_region_graph.jl",
+      "sha256": "da22f8a5406979e60e81c2f5e98297ff2ef7e2fb2d4833153a3e6d03754b3945",
+      "untracked": true
+    },
+    {
+      "path": "test/test_region_history.jl",
+      "sha256": "97bb48e4baddfb9d1a088bb72a7bc9aa3fc7a268270a7ba7d652a0ca322287ad",
+      "untracked": true
+    },
+    {
+      "path": "test/test_region_initial.jl",
+      "sha256": "bf0b9bc8167a2f863f5535fd805cc3636395a0830131a9c4cc46c47a25715b13",
+      "untracked": true
+    },
+    {
+      "path": "test/test_region_layout.jl",
+      "sha256": "d096524d5355adbe97b14af6fc955f430f9fe92cd2c9c0bac18eb75f371aacd9",
+      "untracked": true
+    },
+    {
+      "path": "test/test_region_lifecycle.jl",
+      "sha256": "793e30f0015cdf71dfb534e1f4fc914227643b86230f695360528e1092a55386",
+      "untracked": true
+    },
+    {
+      "path": "test/test_region_queries.jl",
+      "sha256": "517b4be1d81c925da2695b2c9aafb066604ffdcda341fc2844a8d6405767d19b",
+      "untracked": true
+    },
+    {
+      "path": "test/test_region_storage.jl",
+      "sha256": "04efd975726bdd06dccc6442984123c2b93af4aba7c6dc3d27b3a5e2d3fd6938",
+      "untracked": true
+    }
+  ],
+  "checkpoint_commit": "753d99171d9836e47e755fb32f4c7efcf4b31fb6",
+  "checkpoint_branch": "repair/issue-8-orthogonal-regions"
+}

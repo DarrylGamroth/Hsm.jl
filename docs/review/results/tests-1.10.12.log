@@ -1,0 +1,340 @@
+Precompiling packages...
+   1203.9 ms  ✓ Hsm
+  1 dependency successfully precompiled in 2 seconds. 26 already precompiled.
+     Testing Hsm
+      Status `/tmp/jl_lcr9ZC/Project.toml`
+  [9b6a8646] AllocCheck v0.2.7
+  [ae4ab49b] Hsm v0.3.1 `/tmp/hsm-head-review.7MRxPy`
+  [1914dd2f] MacroTools v0.5.16
+  [0625e100] ValSplit v0.1.2
+  [8dfed614] Test
+      Status `/tmp/jl_lcr9ZC/Manifest.toml`
+  [9b6a8646] AllocCheck v0.2.7
+⌅ [fa961155] CEnum v0.5.0
+  [9db33cc3] CompilerCaching v0.5.1
+⌃ [e2ba6199] ExprTools v0.1.10
+⌃ [61eb1bfa] GPUCompiler v2.10.0
+  [076d061b] HashArrayMappedTries v0.2.0
+  [ae4ab49b] Hsm v0.3.1 `/tmp/hsm-head-review.7MRxPy`
+  [692b3bcd] JLLWrappers v1.8.0
+⌅ [929cbde3] LLVM v9.13.2
+  [11f193de] LMDB v3.0.1
+  [1914dd2f] MacroTools v0.5.16
+⌅ [aea7be01] PrecompileTools v1.2.1
+  [21216c6a] Preferences v1.6.1
+  [7e506255] ScopedValues v1.6.2
+  [6c6a2e73] Scratch v1.3.0
+  [e689c965] Tracy v0.1.6
+  [410a4b4d] Tricks v0.1.13
+  [0625e100] ValSplit v0.1.2
+⌅ [dad2f222] LLVMExtra_jll v0.0.47+0
+  [6206cf0b] LMDB_jll v1.0.3+0
+  [ad6e5548] LibTracyClient_jll v0.13.1+0
+  [8b5cbfcf] tree_sitter_gcn_jll v0.1.0+0
+  [44208993] tree_sitter_llvm_jll v1.1.0+0
+  [71e3f6e6] tree_sitter_ptx_jll v0.1.0+0
+  [f0e86581] tree_sitter_spirv_jll v0.1.0+0
+  [0dad84c5] ArgTools v1.1.1
+  [56f22d72] Artifacts
+  [2a0f44e3] Base64
+  [ade2ca70] Dates
+  [f43a241f] Downloads v1.6.0
+  [7b1f6079] FileWatching
+  [b77e0a4c] InteractiveUtils
+  [4af54fe1] LazyArtifacts
+  [b27032c2] LibCURL v0.6.4
+  [76f85450] LibGit2
+  [8f399da3] Libdl
+  [56ddb016] Logging
+  [d6f4376e] Markdown
+  [ca575930] NetworkOptions v1.2.0
+  [44cfe95a] Pkg v1.10.0
+  [de0858da] Printf
+  [3fa0cd96] REPL
+  [9a3f8284] Random
+  [ea8e919c] SHA v0.7.0
+  [9e88b42a] Serialization
+  [6462fe0b] Sockets
+  [fa267f1f] TOML v1.0.3
+  [a4e569a6] Tar v1.10.0
+  [8dfed614] Test
+  [cf7118a7] UUIDs
+  [4ec0a83e] Unicode
+  [deac9b47] LibCURL_jll v8.4.0+0
+  [e37daf67] LibGit2_jll v1.6.4+0
+  [29816b5a] LibSSH2_jll v1.11.0+1
+  [c8ffd9c3] MbedTLS_jll v2.28.1010+0
+  [14a3606d] MozillaCACerts_jll v2025.12.2
+  [83775a58] Zlib_jll v1.2.13+1
+  [8e850ede] nghttp2_jll v1.52.0+1
+  [3f19e933] p7zip_jll v17.6.1+0
+        Info Packages marked with ⌃ and ⌅ have new versions available. Those with ⌃ may be upgradable, but those with ⌅ are restricted by compatibility constraints from upgrading.
+     Testing Running tests...
+ERROR: LoadError: Some tests did not pass: 821 passed, 16 failed, 0 errored, 0 broken.
+in expression starting at /tmp/hsm-head-review.7MRxPy/test/runtests.jl:5
+AllocCheck steady-state contract: Test Failed at /tmp/hsm-head-review.7MRxPy/test/test_allocation_tests_alloccheck.jl:202
+  Expression: all((site->begin
+            #= /tmp/hsm-head-review.7MRxPy/test/test_allocation_tests_alloccheck.jl:202 =#
+            site isa AllocCheck.DynamicDispatch
+        end), sites)
+
+Stacktrace:
+ [1] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:673 [inlined]
+ [2] macro expansion
+   @ /tmp/hsm-head-review.7MRxPy/test/test_allocation_tests_alloccheck.jl:202 [inlined]
+ [3] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:1582 [inlined]
+ [4] top-level scope
+   @ /tmp/hsm-head-review.7MRxPy/test/test_allocation_tests_alloccheck.jl:11
+AllocCheck steady-state contract: Test Failed at /tmp/hsm-head-review.7MRxPy/test/test_allocation_tests_alloccheck.jl:202
+  Expression: all((site->begin
+            #= /tmp/hsm-head-review.7MRxPy/test/test_allocation_tests_alloccheck.jl:202 =#
+            site isa AllocCheck.DynamicDispatch
+        end), sites)
+
+Stacktrace:
+ [1] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:673 [inlined]
+ [2] macro expansion
+   @ /tmp/hsm-head-review.7MRxPy/test/test_allocation_tests_alloccheck.jl:202 [inlined]
+ [3] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:1582 [inlined]
+ [4] top-level scope
+   @ /tmp/hsm-head-review.7MRxPy/test/test_allocation_tests_alloccheck.jl:11
+AllocCheck steady-state contract: Test Failed at /tmp/hsm-head-review.7MRxPy/test/test_allocation_tests_alloccheck.jl:202
+  Expression: all((site->begin
+            #= /tmp/hsm-head-review.7MRxPy/test/test_allocation_tests_alloccheck.jl:202 =#
+            site isa AllocCheck.DynamicDispatch
+        end), sites)
+
+Stacktrace:
+ [1] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:673 [inlined]
+ [2] macro expansion
+   @ /tmp/hsm-head-review.7MRxPy/test/test_allocation_tests_alloccheck.jl:202 [inlined]
+ [3] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:1582 [inlined]
+ [4] top-level scope
+   @ /tmp/hsm-head-review.7MRxPy/test/test_allocation_tests_alloccheck.jl:11
+AllocCheck steady-state contract: Test Failed at /tmp/hsm-head-review.7MRxPy/test/test_allocation_tests_alloccheck.jl:202
+  Expression: all((site->begin
+            #= /tmp/hsm-head-review.7MRxPy/test/test_allocation_tests_alloccheck.jl:202 =#
+            site isa AllocCheck.DynamicDispatch
+        end), sites)
+
+Stacktrace:
+ [1] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:673 [inlined]
+ [2] macro expansion
+   @ /tmp/hsm-head-review.7MRxPy/test/test_allocation_tests_alloccheck.jl:202 [inlined]
+ [3] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:1582 [inlined]
+ [4] top-level scope
+   @ /tmp/hsm-head-review.7MRxPy/test/test_allocation_tests_alloccheck.jl:11
+AllocCheck steady-state contract: Test Failed at /tmp/hsm-head-review.7MRxPy/test/test_allocation_tests_alloccheck.jl:202
+  Expression: all((site->begin
+            #= /tmp/hsm-head-review.7MRxPy/test/test_allocation_tests_alloccheck.jl:202 =#
+            site isa AllocCheck.DynamicDispatch
+        end), sites)
+
+Stacktrace:
+ [1] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:673 [inlined]
+ [2] macro expansion
+   @ /tmp/hsm-head-review.7MRxPy/test/test_allocation_tests_alloccheck.jl:202 [inlined]
+ [3] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:1582 [inlined]
+ [4] top-level scope
+   @ /tmp/hsm-head-review.7MRxPy/test/test_allocation_tests_alloccheck.jl:11
+History transitions: Test Failed at /tmp/hsm-head-review.7MRxPy/test/test_history.jl:422
+  Expression: history_cycle_bytes(perf) == 0
+   Evaluated: 240 == 0
+
+Stacktrace:
+ [1] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:673 [inlined]
+ [2] macro expansion
+   @ /tmp/hsm-head-review.7MRxPy/test/test_history.jl:422 [inlined]
+ [3] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:1582 [inlined]
+ [4] top-level scope
+   @ /tmp/hsm-head-review.7MRxPy/test/test_history.jl:6
+History transitions: Test Failed at /tmp/hsm-head-review.7MRxPy/test/test_history.jl:447
+  Expression: all((site->begin
+            #= /tmp/hsm-head-review.7MRxPy/test/test_history.jl:448 =#
+            site isa AllocCheck.DynamicDispatch
+        end), history_static_sites)
+
+Stacktrace:
+ [1] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:673 [inlined]
+ [2] macro expansion
+   @ /tmp/hsm-head-review.7MRxPy/test/test_history.jl:447 [inlined]
+ [3] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:1582 [inlined]
+ [4] top-level scope
+   @ /tmp/hsm-head-review.7MRxPy/test/test_history.jl:6
+Choice Pseudostates: Test Failed at /tmp/hsm-head-review.7MRxPy/test/test_choice.jl:268
+  Expression: choice_cycle_bytes(perf) == 0
+   Evaluated: 96 == 0
+
+Stacktrace:
+ [1] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:673 [inlined]
+ [2] macro expansion
+   @ /tmp/hsm-head-review.7MRxPy/test/test_choice.jl:268 [inlined]
+ [3] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:1582 [inlined]
+ [4] top-level scope
+   @ /tmp/hsm-head-review.7MRxPy/test/test_choice.jl:5
+Final states and completion transitions: Test Failed at /tmp/hsm-head-review.7MRxPy/test/test_completion.jl:180
+  Expression: completion_cycle_bytes(completion_perf) == 0
+   Evaluated: 96 == 0
+
+Stacktrace:
+ [1] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:673 [inlined]
+ [2] macro expansion
+   @ /tmp/hsm-head-review.7MRxPy/test/test_completion.jl:180 [inlined]
+ [3] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:1582 [inlined]
+ [4] top-level scope
+   @ /tmp/hsm-head-review.7MRxPy/test/test_completion.jl:5
+Terminate Pseudostates: Test Failed at /tmp/hsm-head-review.7MRxPy/test/test_terminate.jl:180
+  Expression: terminate_bytes(perf_measure) == 0
+   Evaluated: 48 == 0
+
+Stacktrace:
+ [1] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:673 [inlined]
+ [2] macro expansion
+   @ /tmp/hsm-head-review.7MRxPy/test/test_terminate.jl:180 [inlined]
+ [3] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:1582 [inlined]
+ [4] top-level scope
+   @ /tmp/hsm-head-review.7MRxPy/test/test_terminate.jl:5
+Type stability and steady-state allocations: Test Failed at /tmp/hsm-head-review.7MRxPy/test/test_type_stability.jl:87
+  Expression: allocated_call(dispatch_ping!, handled) == 0
+   Evaluated: 64 == 0
+
+Stacktrace:
+ [1] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:673 [inlined]
+ [2] macro expansion
+   @ /tmp/hsm-head-review.7MRxPy/test/test_type_stability.jl:87 [inlined]
+ [3] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:1582 [inlined]
+ [4] top-level scope
+   @ /tmp/hsm-head-review.7MRxPy/test/test_type_stability.jl:5
+Type stability and steady-state allocations: Test Failed at /tmp/hsm-head-review.7MRxPy/test/test_type_stability.jl:92
+  Expression: allocated_call(dispatch_ancestor!, ancestor) == 0
+   Evaluated: 128 == 0
+
+Stacktrace:
+ [1] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:673 [inlined]
+ [2] macro expansion
+   @ /tmp/hsm-head-review.7MRxPy/test/test_type_stability.jl:92 [inlined]
+ [3] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:1582 [inlined]
+ [4] top-level scope
+   @ /tmp/hsm-head-review.7MRxPy/test/test_type_stability.jl:5
+Type stability and steady-state allocations: Test Failed at /tmp/hsm-head-review.7MRxPy/test/test_type_stability.jl:97
+  Expression: allocated_call(dispatch_unknown!, unhandled) == 0
+   Evaluated: 144 == 0
+
+Stacktrace:
+ [1] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:673 [inlined]
+ [2] macro expansion
+   @ /tmp/hsm-head-review.7MRxPy/test/test_type_stability.jl:97 [inlined]
+ [3] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:1582 [inlined]
+ [4] top-level scope
+   @ /tmp/hsm-head-review.7MRxPy/test/test_type_stability.jl:5
+Type stability and steady-state allocations: Test Failed at /tmp/hsm-head-review.7MRxPy/test/test_type_stability.jl:106
+  Expression: allocated_call(dispatch_move!, action) == 0
+   Evaluated: 48 == 0
+
+Stacktrace:
+ [1] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:673 [inlined]
+ [2] macro expansion
+   @ /tmp/hsm-head-review.7MRxPy/test/test_type_stability.jl:106 [inlined]
+ [3] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:1582 [inlined]
+ [4] top-level scope
+   @ /tmp/hsm-head-review.7MRxPy/test/test_type_stability.jl:5
+Type stability and steady-state allocations: Test Failed at /tmp/hsm-head-review.7MRxPy/test/test_type_stability.jl:112
+  Expression: allocated_call(dispatch_self!, self_transition) == 0
+   Evaluated: 48 == 0
+
+Stacktrace:
+ [1] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:673 [inlined]
+ [2] macro expansion
+   @ /tmp/hsm-head-review.7MRxPy/test/test_type_stability.jl:112 [inlined]
+ [3] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:1582 [inlined]
+ [4] top-level scope
+   @ /tmp/hsm-head-review.7MRxPy/test/test_type_stability.jl:5
+Type stability and steady-state allocations: Test Failed at /tmp/hsm-head-review.7MRxPy/test/test_type_stability.jl:120
+  Expression: allocated_call(dispatch_return!, nested_initial) == 0
+   Evaluated: 48 == 0
+
+Stacktrace:
+ [1] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:673 [inlined]
+ [2] macro expansion
+   @ /tmp/hsm-head-review.7MRxPy/test/test_type_stability.jl:120 [inlined]
+ [3] macro expansion
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Test/src/Test.jl:1582 [inlined]
+ [4] top-level scope
+   @ /tmp/hsm-head-review.7MRxPy/test/test_type_stability.jl:5
+Test Summary:                                   | Pass  Fail  Total   Time
+Hsm.jl                                          |  821    16    837  59.8s
+  Core functionality                            |   29           29   1.3s
+  Lowest Common Ancestor (LCA)                  |   13           13   0.1s
+  Macros                                        |   54           54   1.9s
+  Macro Expansion Comparison Tests              |   34           34   0.3s
+  Edge Cases and Error Handling                 |   69           69   0.8s
+  Macro Helper Functions                        |   84           84   0.1s
+  State Machine Behavior                        |   44           44   0.9s
+  Error Handling                                |   24           24   0.1s
+  Default Event Handlers                        |   12           12   0.2s
+  on_event macro with function-based syntax     |    8            8   0.1s
+  Any State Handlers                            |   17           17   0.6s
+  AllocCheck steady-state contract              |   31     5     36   5.5s
+    dispatch and transition paths               |   19           19   0.4s
+    abstract shared and concrete handlers       |   12           12   0.4s
+  Abstract Type Support                         |   23           23   0.7s
+  Abstract machine feature matrix               |   33           33   2.5s
+  Docstring support                             |   27           27   0.5s
+  Runnable examples                             |   11           11  22.1s
+  Super Macro Tests                             |   27           27   1.0s
+  Tracing Hooks                                 |   36           36   0.5s
+  Dependency-free diagram model and serializers |   51           51   3.6s
+  Static transition specialization              |   25           25   0.5s
+  UML handler and macro rules                   |   32           32   0.6s
+  History transitions                           |   40     2     42   2.7s
+  Choice Pseudostates                           |   28     1     29   1.2s
+  Final states and completion transitions       |   29     1     30   1.5s
+  Terminate Pseudostates                        |   26     1     27   1.0s
+  Type stability and steady-state allocations   |   14     6     20   0.4s
+ERROR: Package Hsm errored during testing
+Stacktrace:
+ [1] pkgerror(msg::String)
+   @ Pkg.Types ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Pkg/src/Types.jl:70
+ [2] test(ctx::Pkg.Types.Context, pkgs::Vector{Pkg.Types.PackageSpec}; coverage::Bool, julia_args::Cmd, test_args::Cmd, test_fn::Nothing, force_latest_compatible_version::Bool, allow_earlier_backwards_compatible_versions::Bool, allow_reresolve::Bool)
+   @ Pkg.Operations ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Pkg/src/Operations.jl:2051
+ [3] test
+   @ ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Pkg/src/Operations.jl:1932 [inlined]
+ [4] test(ctx::Pkg.Types.Context, pkgs::Vector{Pkg.Types.PackageSpec}; coverage::Bool, test_fn::Nothing, julia_args::Cmd, test_args::Cmd, force_latest_compatible_version::Bool, allow_earlier_backwards_compatible_versions::Bool, allow_reresolve::Bool, kwargs::@Kwargs{io::IOStream})
+   @ Pkg.API ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Pkg/src/API.jl:444
+ [5] test(pkgs::Vector{Pkg.Types.PackageSpec}; io::IOStream, kwargs::@Kwargs{allow_reresolve::Bool})
+   @ Pkg.API ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Pkg/src/API.jl:159
+ [6] test(; name::Nothing, uuid::Nothing, version::Nothing, url::Nothing, rev::Nothing, path::Nothing, mode::Pkg.Types.PackageMode, subdir::Nothing, kwargs::@Kwargs{allow_reresolve::Bool})
+   @ Pkg.API ~/.julia/juliaup/julia-1.10.12+0.x64.linux.gnu/share/julia/stdlib/v1.10/Pkg/src/API.jl:174
+ [7] top-level scope
+   @ none:1

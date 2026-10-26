@@ -1,0 +1,44 @@
+Test Summary:      | Pass  Total  Time
+Core functionality |   29     29  0.8s
+Test Summary:                | Pass  Total  Time
+Lowest Common Ancestor (LCA) |   13     13  0.1s
+(julia = v"1.10.12", platform = "x86_64-linux-gnu", threads = 1, signature = "dispatch!(::AllocationRepro.Machine, ::Symbol, ::Int64)", bytes = 64, allocations = 2, minimum_seconds = 5.0e-8, valsplit_path = "/home/dgamroth/.julia/packages/ValSplit/bAexl/src/ValSplit.jl")
+MethodInstance for Hsm.on_event!(::Main.AllocationRepro.Machine, ::Symbol, ::Symbol, ::Int64)
+  from on_event!(sm::Main.AllocationRepro.Machine, state::Symbol, event::Symbol, arg::T) where T @ Main.AllocationRepro ~/.julia/packages/ValSplit/bAexl/src/ValSplit.jl:213
+Static Parameters
+  T = Int64
+Arguments
+  #self#::Core.Const(Hsm.on_event!)
+  sm::Main.AllocationRepro.Machine
+  state::Symbol
+  event::Symbol
+  arg::Int64
+Locals
+  default_f::Main.AllocationRepro.var"#226#default_f#4"{Main.AllocationRepro.Machine, Symbol, Symbol, Int64}
+  vals::Tuple{Symbol}
+Body::ANY
+1 ─ %1  = Hsm.on_event!::Core.Const(Hsm.on_event!)
+│   %2  = Core.apply_type(ValSplit.Tuple, Main.AllocationRepro.Machine, ValSplit.Val, ValSplit.Val, $(Expr(:static_parameter, 1)))::Core.Const(Tuple{Main.AllocationRepro.Machine, Val, Val, Int64})
+│         (vals = ValSplit.valarg_params(%1, %2, 2, Main.AllocationRepro.Symbol))
+│   %4  = Main.AllocationRepro.:(var"#226#default_f#4")::Core.Const(Main.AllocationRepro.var"#226#default_f#4")
+│   %5  = Core.typeof(sm)::Core.Const(Main.AllocationRepro.Machine)
+│   %6  = Core.typeof(state)::Core.Const(Symbol)
+│   %7  = Core.typeof(event)::Core.Const(Symbol)
+│   %8  = Core.typeof(arg)::Core.Const(Int64)
+│   %9  = Core.apply_type(%4, %5, %6, %7, %8)::Core.Const(Main.AllocationRepro.var"#226#default_f#4"{Main.AllocationRepro.Machine, Symbol, Symbol, Int64})
+│         (default_f = %new(%9, sm, state, event, arg))
+│   %11 = ValSplit.Val(vals::Core.Const((:Leaf,)))::Core.Const(Val{(:Leaf,)}())
+│   %12 = ValSplit.Val(2)::Core.Const(Val{2}())
+│   %13 = Hsm.on_event!::Core.Const(Hsm.on_event!)
+│   %14 = default_f::Main.AllocationRepro.var"#226#default_f#4"{Main.AllocationRepro.Machine, Symbol, Symbol, Int64}
+│   %15 = ValSplit._valswitch(%11, %12, %13, %14, sm, state, event, arg)::ANY
+└──       return %15
+
+ALLOCATION Profile.Allocs.UnknownType 48
+dispatch!(sm::Main.AllocationRepro.Machine, event::Symbol, arg::Int64) at Hsm.jl:2757
+ping! at allocations.jl:23 [inlined]
+top-level scope at allocations.jl:47
+ALLOCATION Profile.Allocs.UnknownType 16
+dispatch!(sm::Main.AllocationRepro.Machine, event::Symbol, arg::Int64) at Hsm.jl:2757
+ping! at allocations.jl:23 [inlined]
+top-level scope at allocations.jl:47

@@ -1,0 +1,22 @@
+Review reproduction run: Julia 1.13.3, x86_64-linux-gnu, threads=1
+
+REPRODUCTION inner_constructors.jl
+ERROR: LoadError: There was an error during testing
+in expression starting at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/inner_constructors.jl:17
+rejection = nothing
+Test Failed at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/inner_constructors.jl:17
+  Expression: rejection isa Exception
+   Evaluated: nothing isa Exception
+EXIT 1 inner_constructors.jl
+
+REPRODUCTION initial_escape.jl
+ERROR: LoadError: There was an error during testing
+in expression starting at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/initial_escape.jl:20
+construction accepted escaping initial; current=Outside
+Test Failed at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/initial_escape.jl:20
+  Expression: InitialEscapeSm()
+    Expected: HsmStateError
+  No exception thrown
+EXIT 1 initial_escape.jl
+
+Reproductions with failing assertions: 2/2

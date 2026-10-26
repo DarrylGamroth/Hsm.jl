@@ -31,6 +31,27 @@ in one implicit Region and keeps States and events public as `Symbol`s.
 | HSM-DIAGRAM-001 | Diagram tooling builds a format-neutral description from the statically registered machine hierarchy and possible Transition edges without constructing or executing the machine. The model represents terminate as a UML Pseudostate distinct from FinalState. PlantUML and Mermaid output retain every registered edge and document notation adaptations where a renderer lacks a native UML vertex. Diagram generation has no non-stdlib runtime dependency and is outside dispatch and Transition hot paths. Arbitrary handler bodies and manually implemented unregistered edges are not inferred. | Project tooling contract | `_diagram_transition_edge`, `diagram_model`, dependency-free PlantUML and Mermaid serializers | `test_diagrams.jl` model, inheritance, semantic-edge, adaptation, deterministic-output, IO, rejection, and container-render tests | Implemented |
 | HSM-PERF-001 | Warmed library-owned handled, ancestor-handled, unhandled, external-self, action, nested-initial, abstract-family, choice, history, completion, and terminate paths infer concrete returns and allocate zero heap bytes when callbacks do not allocate. | Project performance contract | finite value splits and generated static kernels | `test_type_stability.jl`, `test_allocation_tests_alloccheck.jl`, and feature-specific allocation assertions | Implemented |
 
+## Review exceptions — 2026-10-26
+
+The full review of source commit `bb00ed8` established the following open
+exceptions to the implementation and verification claims above. Details,
+reproductions, platform/version evidence, and dispositions are in
+[docs/REVIEW.md](docs/REVIEW.md). No runtime repair is included in this review.
+
+| Requirement | Open review evidence |
+|---|---|
+| HSM-PERF-001 | MAIN-001: the freshly resolved ValSplit dependency violates warmed zero-allocation processing on Julia 1.10.12; current stable passes. |
+| HSM-HIST-001/002 | MAIN-002: an inner FinalState causes enclosing non-final Region history to be discarded. |
+| HSM-STATE-001, HSM-CHOICE-001 | MAIN-003: an initial choice can exit and reenter its already active owner. |
+| HSM-STATE-001, HSM-COMP-001/002 | MAIN-004: a transition to an active containing State restarts defaults instead of completing the source Region as required by PSSM. |
+| HSM-STATE-001 | MAIN-005: initial targets are not checked for containment. |
+| HSM-MACRO-001, HSM-ABSTRACT-001 | MAIN-006 through MAIN-011: argument binding, nested function scope, `@super` hygiene, parametric constructors/registrations, and unsupported inner constructors have executable counterexamples. |
+| HSM-DIAGRAM-001 | MAIN-013: generated Pseudostate names can collide with State Symbols. MAIN-012 is a separate modeling improvement requiring reconciliation of raw registration inventory with effective-machine semantics. |
+
+The existing “Implemented” statuses describe the covered subset and do not
+claim that these counterexamples passed. The gaps remain open until their
+repair and corresponding verification evidence are recorded.
+
 ## Verification matrix
 
 The test suite uses focused feature tests plus representative integration

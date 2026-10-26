@@ -1,0 +1,251 @@
+Review reproduction run: Julia 1.13.3, x86_64-linux-gnu, threads=1
+
+REPRODUCTION allocations.jl
+Test Summary:      | Pass  Total  Time
+Core functionality |   29     29  0.8s
+Test Summary:                | Pass  Total  Time
+Lowest Common Ancestor (LCA) |   13     13  0.1s
+(julia = v"1.13.3", platform = "x86_64-linux-gnu", threads = 1, signature = "dispatch!(::AllocationRepro.Machine, ::Symbol, ::Int64)", bytes = 0, allocations = 0, minimum_seconds = 3.0e-8, valsplit_path = "/home/dgamroth/.julia/packages/ValSplit/bAexl/src/ValSplit.jl")
+EXIT 0 allocations.jl
+
+REPRODUCTION ancestor_target.jl
+ERROR: LoadError: There was an error during testing
+in expression starting at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/ancestor_target.jl:27
+result=EventHandled current=Leaf log=[:default]
+Test Failed at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/ancestor_target.jl:27
+  Expression: Hsm.current(sm) === :Done
+   Evaluated: Leaf === Done
+EXIT 1 ancestor_target.jl
+
+REPRODUCTION argument_shadow.jl
+ERROR: LoadError: There was an error during testing
+in expression starting at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/argument_shadow.jl:21
+calls[] = 0
+Hsm.current(sm) = :B
+Test Failed at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/argument_shadow.jl:21
+  Expression: calls[] == 1
+   Evaluated: 0 == 1
+EXIT 1 argument_shadow.jl
+
+REPRODUCTION behavior_parameters.jl
+ERROR: LoadError: There was an error during testing
+in expression starting at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/behavior_parameters.jl:24
+typeof(sm) = ParamBehaviorSm{Int64}
+sm.value = 2
+Hsm.current(sm) = :A
+Hsm.iscomplete(sm) = false
+HsmStateError: HsmStateError: FinalState A cannot define State Behaviors [:entry]
+Error During Test at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/behavior_parameters.jl:24
+  Test threw exception
+  Expression: Hsm.iscomplete(ParamBehaviorSm(1.0))
+  HsmStateError: HsmStateError: FinalState A cannot define State Behaviors [:entry]
+  Stacktrace:
+   [1] macro expansion
+     @ ~/workspaces/codex/Hsm.jl-main-review/src/Hsm.jl:-1 [inlined]
+   [2] _validate_static_hierarchy!(::Val{((:A, :Root),)}, ::Val{()}, ::Val{(:A,)}, ::Val{()}, ::Val{((:A, :entry), (:Root, :initial))})
+     @ Hsm ~/workspaces/codex/Hsm.jl-main-review/src/Hsm.jl:1619
+   [3] _validate_static_hierarchy!
+     @ ~/workspaces/codex/Hsm.jl-main-review/src/Hsm.jl:1643 [inlined]
+   [4] _initialize_machine!(sm::ParamBehaviorSm{Float64})
+     @ Hsm ~/workspaces/codex/Hsm.jl-main-review/src/Hsm.jl:1129
+   [5] ParamBehaviorSm(args::Float64)
+     @ Main ./none:-1
+   [6] top-level scope
+     @ ~/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/behavior_parameters.jl:539
+   [7] macro expansion
+     @ ~/.julia/juliaup/julia-1.13.3+0.x64.linux.gnu/share/julia/stdlib/v1.13/Test/src/Test.jl:755 [inlined]
+EXIT 1 behavior_parameters.jl
+
+REPRODUCTION bounded_parameters.jl
+ERROR: LoadError: UndefVarError: `M` not defined in `Main`
+Suggestion: check for spelling errors or missing imports.
+Stacktrace:
+ [1] top-level scope
+   @ ~/workspaces/codex/Hsm.jl-main-review/src/macros.jl:1022
+ [2] include(mod::Module, _path::String)
+   @ Base ./Base.jl:309
+ [3] exec_options(opts::Base.JLOptions)
+   @ Base ./client.jl:344
+ [4] _start()
+   @ Base ./client.jl:577
+in expression starting at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/bounded_parameters.jl:6
+EXIT 1 bounded_parameters.jl
+
+REPRODUCTION diagram_names.jl
+ERROR: LoadError: There was an error during testing
+in expression starting at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/diagram_names.jl:18
+text = "@startuml\nhide empty description\ntitle Machine\n' Generated from statically registered Hsm.jl edges; handlers without\n' transition! calls are not inferred as internal Transitions.\n' PlantUML has no terminate Pseudostate; terminate uses a labeled state.\nstate \"B\" as state_1\nstate \"__hsm_initial_Root\" as pseudo_1\n[*] --> state_1 : Go\n[*] --> pseudo_1\n@enduml\n"
+Test Failed at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/diagram_names.jl:18
+  Expression: count((line->begin
+                #= /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/diagram_names.jl:18 =#
+                occursin("[*] -->", line)
+            end), split(text, Char(10))) == 1
+   Evaluated: 2 == 1
+EXIT 1 diagram_names.jl
+
+REPRODUCTION diagram_overrides.jl
+ERROR: LoadError: There was an error during testing
+in expression starting at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/diagram_overrides.jl:28
+current(DiagramOverridesRepro.Concrete()) = :B
+initial_targets = [:A, :B]
+tick_targets = [:A, :B]
+Test Failed at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/diagram_overrides.jl:28
+  Expression: initial_targets == [:B]
+   Evaluated: [:A, :B] == [:B]
+EXIT 1 diagram_overrides.jl
+
+REPRODUCTION initial_choice_owner.jl
+ERROR: LoadError: There was an error during testing
+in expression starting at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/initial_choice_owner.jl:30
+current=A log=[:enter_owner, :exit_owner, :enter_owner]
+Test Failed at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/initial_choice_owner.jl:30
+  Expression: sm.log == [:enter_owner]
+   Evaluated: [:enter_owner, :exit_owner, :enter_owner] == [:enter_owner]
+EXIT 1 initial_choice_owner.jl
+
+REPRODUCTION initial_escape.jl
+ERROR: LoadError: There was an error during testing
+in expression starting at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/initial_escape.jl:16
+construction accepted escaping initial; current=Outside
+Test Failed at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/initial_escape.jl:16
+  Expression: InitialEscapeSm()
+    Expected: HsmStateError
+  No exception thrown
+EXIT 1 initial_escape.jl
+
+REPRODUCTION inner_constructors.jl
+ERROR: LoadError: There was an error during testing
+in expression starting at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/inner_constructors.jl:26
+sm.value = 1
+UndefRefError: access to undefined reference
+HsmEventError: Cannot dispatch an event while another run-to-completion step is active
+Error During Test at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/inner_constructors.jl:26
+  Test threw exception
+  Expression: Hsm.current(sm) === :A
+  UndefRefError: access to undefined reference
+  Stacktrace:
+   [1] current(sm::InnerSm)
+     @ Main ./none:-1
+   [2] top-level scope
+     @ ~/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/inner_constructors.jl:539
+   [3] macro expansion
+     @ ~/.julia/juliaup/julia-1.13.3+0.x64.linux.gnu/share/julia/stdlib/v1.13/Test/src/Test.jl:755 [inlined]
+EXIT 1 inner_constructors.jl
+
+REPRODUCTION kwdef_parameters.jl
+ERROR: LoadError: There was an error during testing
+in expression starting at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/kwdef_parameters.jl:20
+typeof(sm) = KwParamSm{Int64}
+sm.x = 1
+Hsm.current(sm) = :A
+MethodError: no method matching KwParamSm{Int64}(::Int64)
+The type `KwParamSm{Int64}` exists, but no method is defined for this combination of argument types when trying to construct it.
+
+Closest candidates are:
+  (::Type{KwParamSm{T}} where T)(::Any, !Matched::Any, !Matched::Any, !Matched::Any, !Matched::Any, !Matched::Any, !Matched::Any)
+   @ Main ~/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/kwdef_parameters.jl:3
+  KwParamSm{T}(; x) where T
+   @ Main ~/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/kwdef_parameters.jl:2
+
+Error During Test at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/kwdef_parameters.jl:20
+  Test threw exception
+  Expression: Hsm.current(KwParamSm{Int}()) === :A
+  MethodError: no method matching KwParamSm{Int64}(::Int64)
+  The type `KwParamSm{Int64}` exists, but no method is defined for this combination of argument types when trying to construct it.
+  Closest candidates are:
+    (::Type{KwParamSm{T}} where T)(::Any, !Matched::Any, !Matched::Any, !Matched::Any, !Matched::Any, !Matched::Any, !Matched::Any)
+     @ Main ~/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/kwdef_parameters.jl:3
+    KwParamSm{T}(; x) where T
+     @ Main ~/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/kwdef_parameters.jl:2
+  Stacktrace:
+   [1] KwParamSm{Int64}(; x::Int64)
+     @ Main ~/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/kwdef_parameters.jl:2
+   [2] KwParamSm{Int64}()
+     @ Main ~/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/kwdef_parameters.jl:2
+   [3] top-level scope
+     @ ~/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/kwdef_parameters.jl:539
+   [4] macro expansion
+     @ ~/.julia/juliaup/julia-1.13.3+0.x64.linux.gnu/share/julia/stdlib/v1.13/Test/src/Test.jl:755 [inlined]
+EXIT 1 kwdef_parameters.jl
+
+REPRODUCTION nested_final_history.jl
+ERROR: LoadError: There was an error during testing
+in expression starting at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/nested_final_history.jl:40
+Start => EventHandled Leaf
+Finish => EventHandled Finished
+Leave => EventHandled Outside
+history_outer=Root history_branch=Root
+Recall => EventHandled Initial
+Test Failed at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/nested_final_history.jl:40
+  Expression: Hsm.current(sm) === :Leaf
+   Evaluated: Initial === Leaf
+EXIT 1 nested_final_history.jl
+
+REPRODUCTION public_docs.jl
+ERROR: LoadError: There was an error during testing
+in expression starting at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/public_docs.jl:4
+missing = [:EventHandled, :EventNotHandled, :HsmEventError, :HsmMacroError, :HsmStateError]
+Test Failed at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/public_docs.jl:4
+  Expression: isempty(missing)
+   Evaluated: isempty([:EventHandled, :EventNotHandled, :HsmEventError, :HsmMacroError, :HsmStateError])
+EXIT 1 public_docs.jl
+
+REPRODUCTION readme_abstract.jl
+ERROR: LoadError: There was an error during testing
+in expression starting at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/readme_abstract.jl:60
+initial_states = [:Root, :Root]
+FieldError: type Truck has no field `fuel`, available fields: `speed`, `cargo`, `##history#163`, `##transition_phase#164`, `##lifecycle#165`, `##pending_completion#166`, `##current#167`, `##source#168`
+Test Failed at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/readme_abstract.jl:60
+  Expression: initial_states == [:Moving, :Moving]
+   Evaluated: [:Root, :Root] == [:Moving, :Moving]
+EXIT 1 readme_abstract.jl
+
+REPRODUCTION short_functions.jl
+ERROR: LoadError: There was an error during testing
+in expression starting at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/short_functions.jl:33
+HsmStateError: Transition source A is not active below current state B
+event = :Long
+Hsm.current(other) = :A
+Error During Test at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/short_functions.jl:33
+  Test threw exception
+  Expression: Hsm.dispatch!(source, :Short, other) === Hsm.EventHandled
+  HsmStateError: Transition source A is not active below current state B
+  Stacktrace:
+    [1] _transition_from!
+      @ ~/workspaces/codex/Hsm.jl-main-review/src/Hsm.jl:1380 [inlined]
+    [2] helper
+      @ ~/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/short_functions.jl:9 [inlined]
+    [3] on_event!
+      @ ~/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/short_functions.jl:10 [inlined]
+    [4] macro expansion
+      @ ~/.julia/packages/ValSplit/bAexl/src/ValSplit.jl:-1 [inlined]
+    [5] _valswitch(::Val{(:Long, :Short)}, ::Val{3}, ::typeof(on_event!), ::var"#9#10"{ScopeSm, Val{:A}, Symbol, ScopeSm}, ::ScopeSm, ::Val{:A}, ::Symbol, ::ScopeSm; kwargs::@Kwargs{})
+      @ ValSplit ~/.julia/packages/ValSplit/bAexl/src/ValSplit.jl:137
+    [6] _valswitch
+      @ ~/.julia/packages/ValSplit/bAexl/src/ValSplit.jl:137 [inlined]
+    [7] on_event!
+      @ ~/.julia/packages/ValSplit/bAexl/src/ValSplit.jl:217 [inlined]
+    [8] macro expansion
+      @ ~/.julia/packages/ValSplit/bAexl/src/ValSplit.jl:-1 [inlined]
+    [9] _valswitch
+      @ ~/.julia/packages/ValSplit/bAexl/src/ValSplit.jl:137 [inlined]
+   [10] on_event!
+      @ ~/.julia/packages/ValSplit/bAexl/src/ValSplit.jl:217 [inlined]
+   [11] dispatch!(sm::ScopeSm, event::Symbol, arg::ScopeSm)
+      @ Hsm ~/workspaces/codex/Hsm.jl-main-review/src/Hsm.jl:2757
+   [12] top-level scope
+      @ ~/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/short_functions.jl:539
+   [13] macro expansion
+      @ ~/.julia/juliaup/julia-1.13.3+0.x64.linux.gnu/share/julia/stdlib/v1.13/Test/src/Test.jl:755 [inlined]
+EXIT 1 short_functions.jl
+
+REPRODUCTION super_hygiene.jl
+ERROR: LoadError: There was an error during testing
+in expression starting at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/super_hygiene.jl:22
+sm.seen = AbstractSuperSm
+Test Failed at /home/dgamroth/workspaces/codex/Hsm.jl-main-review/docs/review/reproductions/super_hygiene.jl:22
+  Expression: sm.seen === 123
+   Evaluated: AbstractSuperSm === 123
+EXIT 1 super_hygiene.jl
+
+Reproductions with failing assertions: 15/16

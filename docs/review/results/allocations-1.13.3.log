@@ -1,0 +1,11 @@
+Review reproduction run: Julia 1.13.3, x86_64-linux-gnu, threads=1
+
+REPRODUCTION allocations.jl
+Test Summary:      | Pass  Total  Time
+Core functionality |   29     29  1.0s
+Test Summary:                | Pass  Total  Time
+Lowest Common Ancestor (LCA) |   13     13  0.1s
+(julia = v"1.13.3", platform = "x86_64-linux-gnu", threads = 1, signature = "dispatch!(::AllocationRepro.Machine, ::Symbol, ::Int64)", bytes = 0, allocations = 0, minimum_seconds = 2.0e-8, valsplit_path = "/home/dgamroth/.julia/packages/ValSplit/bAexl/src/ValSplit.jl")
+EXIT 0 allocations.jl
+
+Reproductions with failing assertions: 0/1
