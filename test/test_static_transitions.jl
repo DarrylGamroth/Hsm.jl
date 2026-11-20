@@ -1,6 +1,12 @@
 using Test
 using Hsm
 
+@testset "Static descendant states" begin
+    @test Hsm._static_descendant_states(
+        Val((:Root, :Child)), Val(((:Child, :Root),)), Val(:Root)
+    ) === (:Child,)
+end
+
 @testset "Static transition specialization" begin
     @hsmdef mutable struct StaticTransitionSm
         log::Vector{Symbol}

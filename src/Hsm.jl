@@ -1581,6 +1581,35 @@ end
     return _transition_static!(action, sm, current_state, source_state, target, Val(false))
 end
 
+function _static_parent_map(parent_pairs)
+    parents = Dict{Symbol,Symbol}(:Root => :Root)
+    for (child, parent) in parent_pairs
+        if haskey(parents, child) && parents[child] !== parent
+            throw(HsmStateError(
+                "State $child has conflicting parents $(parents[child]) and $parent",
+            ))
+        end
+        parents[child] = parent
+    end
+    return parents
+end
+
+function _static_ancestry(parents, state::Symbol)
+    path = Symbol[]
+    seen = Set{Symbol}()
+    while true
+        state in seen && throw(HsmStateError("Cycle detected at state $state"))
+        push!(seen, state)
+        push!(path, state)
+        state === :Root && return path
+        haskey(parents, state) || throw(HsmStateError(
+            "No static parent registered for state $state",
+        ))
+        state = parents[state]
+    end
+end
+
+# The generator can only call methods defined before it.
 @generated function _static_descendant_states(
     ::Val{STATES},
     ::Val{PARENT_PAIRS},
@@ -1643,34 +1672,6 @@ end
         ))
     end
     return _transition_static!(action, sm, current_state, source_state, target)
-end
-
-function _static_parent_map(parent_pairs)
-    parents = Dict{Symbol,Symbol}(:Root => :Root)
-    for (child, parent) in parent_pairs
-        if haskey(parents, child) && parents[child] !== parent
-            throw(HsmStateError(
-                "State $child has conflicting parents $(parents[child]) and $parent",
-            ))
-        end
-        parents[child] = parent
-    end
-    return parents
-end
-
-function _static_ancestry(parents, state::Symbol)
-    path = Symbol[]
-    seen = Set{Symbol}()
-    while true
-        state in seen && throw(HsmStateError("Cycle detected at state $state"))
-        push!(seen, state)
-        push!(path, state)
-        state === :Root && return path
-        haskey(parents, state) || throw(HsmStateError(
-            "No static parent registered for state $state",
-        ))
-        state = parents[state]
-    end
 end
 
 function _validate_static_parent_pairs(parent_pairs)
