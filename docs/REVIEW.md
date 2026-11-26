@@ -559,3 +559,42 @@ The baseline coverage percentage above was not remeasured after remediation.
 No controlled latency, compilation-latency or code-size comparison is claimed;
 incidental timings in logs are not evidence of a speedup. Windows, macOS and
 external renderer containers were not rerun locally.
+
+## Julia 1.10 allocation follow-up — 2026-11-26
+
+The existing `docs/review/reproductions/allocations.jl` fixture warms
+`dispatch!(::AllocationRepro.Machine, ::Symbol, ::Int64)` and verifies the
+handled result, active leaf, and counter update. The measurements cover normal
+dispatch on Linux x86-64 with one Julia thread and ValSplit 0.1.2 from General
+(tree `e00dde2…`).
+
+| Julia | Heap bytes | Heap allocations |
+|---|---:|---:|
+| 1.10.14 | 64 | 2 |
+| 1.11.9 | 0 | 0 |
+| 1.12.7 | 0 | 0 |
+| 1.13.4 | 0 | 0 |
+
+The Julia 1.10 allocation profile attributed both allocations to the call to
+`on_event!`. Its typed IR inferred `Any` at the ValSplit switch, and LLVM IR
+showed an allocation to box the switch's `EventReturn`. Removing the keyword
+forwarding expression from a temporary ValSplit 0.1.2 copy still gave 64
+bytes. Removing the switch's keyword-varargs signature as well restored
+`EventReturn` inference and zero bytes in the same fixture. This diagnostic
+change would drop keyword forwarding.
+
+Registry ValSplit 0.1.1 also gave zero bytes in the fixture on Julia 1.10.14,
+and all 36 assertions in the AllocCheck test set passed with it. With that
+version on 1.10 and with ValSplit 0.1.2 on 1.11, the runtime regression tests
+initially reported 16 bytes and two allocations for each of five ancestor
+completion and history cases. Measuring through a concrete callable type
+removed this test-harness overhead in both configurations. The same
+measurements still detect allocations with ValSplit 0.1.2 on Julia 1.10.
+
+The supported Julia floor moves to 1.11 so dependency resolution can continue
+to select ValSplit 0.1.2. The dependency compatibility range and allocation
+checks remain in place.
+
+The final package suite passed all 1,188 assertions on Linux x86-64 with
+Julia 1.11.9 and 1.13.4, ValSplit 0.1.2, and AllocCheck 0.2.8. The README
+example test passed with LF and CRLF inputs on Linux.

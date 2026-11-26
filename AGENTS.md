@@ -63,10 +63,10 @@
 
 ## Compatibility, performance, and verification
 
-- Support Julia 1.10 and newer only.
+- Support Julia 1.11 and newer only.
 - Separate steady-state runtime benchmarks from package-load, precompile, and first-call latency measurements.
-- Test semantic changes on Julia 1.10 and the current stable Julia release.
-- Keep committed examples runnable with `julia --project=.` on Julia 1.10 and
+- Test semantic changes on Julia 1.11 and the current stable Julia release.
+- Keep committed examples runnable with `julia --project=.` on Julia 1.11 and
   current stable. Examples may use Hsm.jl and standard libraries; keep Revise,
   BenchmarkTools, and other personal tools in developer environments.
 - Add tests for transition ordering, ancestor-handled events, self transitions, initial activation, forbidden entry/exit transitions, macro hygiene, and shallow/deep/default history behavior as applicable.
