@@ -43,12 +43,11 @@ and MAIN-015's exported bindings now have attached documentation. MAIN-012 is
 resolved by explicitly documenting and testing the existing registration
 inventory contract; an effective dispatch graph is not claimed.
 
-HSM-PERF-001 retains one open exception: MAIN-001's ValSplit boundary allocates
-on Julia 1.10.12 with the freshly resolved dependency. Julia 1.13.3 retains the
-zero-byte contract on the tested concrete paths. At the user's direction,
-further Julia 1.10 allocation work is deferred; the declared minimum version and
-allocation assertions are retained. The verification evidence below does not
-claim that Julia 1.10 satisfies HSM-PERF-001.
+The minimum supported Julia version is 1.11. The MAIN-001 follow-up traced
+allocations on Julia 1.10 to the ValSplit 0.1.2 event boundary. The runtime
+regression tests measure through concrete callable types so the zero-byte
+assertions measure the library call.
+See the [November allocation investigation](docs/REVIEW.md#julia-110-allocation-follow-up--2026-11-26).
 
 ## Verification matrix
 

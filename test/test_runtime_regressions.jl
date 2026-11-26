@@ -4,6 +4,9 @@ using Hsm
 module RuntimeRegressionFixtures
 using Hsm
 
+allocated_bytes(operation::F, sm) where {F} = @allocated operation(sm)
+allocation_count(operation::F, sm) where {F} = @allocations operation(sm)
+
 @hsmdef mutable struct HistorySm
     defaults::Int
     handled::Int
@@ -357,17 +360,17 @@ end
     end
     @testset "Concrete warmed runtime paths" begin
         # Construction and mutable setup are outside each measured expression.
-        # The exact function/machine signature is warmed before measurement.
+        # Warm the exact signature and measure with a concrete callable type.
         for up in (fixtures.up!, fixtures.up_dynamic!)
             sm = fixtures.ancestor(true)
             up(sm)
             sm = fixtures.ancestor(true)
             @test @inferred(up(sm)) === Hsm.EventHandled
             sm = fixtures.ancestor(true)
-            @test @allocated(up(sm)) == 0
+            @test fixtures.allocated_bytes(up, sm) == 0
             @test Hsm.current(sm) === :Done
             sm = fixtures.ancestor(true)
-            @test @allocations(up(sm)) == 0
+            @test fixtures.allocation_count(up, sm) == 0
             @test Hsm.current(sm) === :Done
         end
         for restore in (fixtures.shallow!, fixtures.deep!, fixtures.dynamic_deep!)
@@ -376,10 +379,10 @@ end
             sm = setup()
             @test @inferred(restore(sm)) === Hsm.EventHandled
             sm = setup()
-            @test @allocated(restore(sm)) == 0
+            @test fixtures.allocated_bytes(restore, sm) == 0
             @test Hsm.current(sm) === (restore === fixtures.shallow! ? :Leaf : :Branch)
             sm = setup()
-            @test @allocations(restore(sm)) == 0
+            @test fixtures.allocation_count(restore, sm) == 0
             @test Hsm.current(sm) === (restore === fixtures.shallow! ? :Leaf : :Branch)
         end
     end

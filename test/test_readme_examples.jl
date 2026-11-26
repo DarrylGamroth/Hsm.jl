@@ -2,7 +2,7 @@ using Test, Hsm
 
 @testset "README abstract-machine example" begin
     readme = read(joinpath(pkgdir(Hsm), "README.md"), String)
-    blocks = [match.captures[1] for match in eachmatch(r"```julia\n(.*?)```"s, readme)]
+    blocks = [match.captures[1] for match in eachmatch(r"```julia\r?\n(.*?)```"s, readme)]
     code = only(filter(block -> occursin("@abstracthsmdef VehicleController", block), blocks))
     example = Module(:ReadmeAbstractExample)
     Core.eval(example, Meta.parseall(code))
